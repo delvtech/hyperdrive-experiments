@@ -26,11 +26,10 @@ git clone --branch v0.0.13 git@github.com:delvtech/hyperdrive.git ../hyperdrive
 ln -s ../hyperdrive hyperdrive_solidity
 ```
 
-4. Clone & install elf-simulations:
+4. Install elf-simulations:
 
 ```bash
-git clone --branch v0.5.0 git@github.com:delvtech/elf-simulations.git ../elf-simulations
 python -m pip install --upgrade pip
-python -m pip install --upgrade -r ../elf-simulations/requirements.txt
-python -m pip install --upgrade -r ../elf-simulations/requirements-dev.txt
+python -m pip install "agent0[with-dependencies] @ git+ssh://git@github.com/delvtech/elf-simulations.git@v0.5.0#subdirectory=lib/agent0"
+python -m pip install --upgrade -r https://raw.githubusercontent.com/delvtech/elf-simulations/v0.5.0/requirements-dev.txt
 ```
