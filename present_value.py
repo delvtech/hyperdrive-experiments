@@ -1,6 +1,8 @@
 """Calculate the present value of an LP's capital in the pool for many pool states."""
 
 # %%
+# from dataclasses import dataclass
+
 from agent0 import AccountKeyConfig
 from agent0.base.make_key import make_private_key
 from agent0.hyperdrive.agents import HyperdriveAgent
@@ -72,6 +74,43 @@ initial_pool_config = PoolConfig(
     oracle_size,
     update_gap,
 )
+
+
+# %%
+# define present value
+
+# TODO: I started writing this up but it seems like a bad idea.
+# It would require implementing a couple of yieldspace math functions in python
+# The better move would be to get those into pyperdrive
+
+# @dataclass
+# class PresentValueParams:
+#     """Pool parameters relevant for the present value calculation."""
+#
+#     share_reserves: FixedPoint
+#     share_adjustment: FixedPoint
+#     bond_reserves: FixedPoint
+#     share_price: FixedPoint
+#     initial_share_price: FixedPoint
+#     minimum_share_reserves: FixedPoint
+#     time_stretch: FixedPoint
+#     longs_outstanding: FixedPoint
+#     long_average_time_remaining: FixedPoint
+#     shorts_outstanding: FixedPoint
+#     short_average_time_remaining: FixedPoint
+#
+# def calc_max_sell():
+#     return NotImplementedError
+#
+# def calculate_present_value(params: PresentValueParams) -> FixedPoint:
+#     """Calculates the present value of LPs capital in the pool."""
+#     net_curve_trade = (
+#         params.longs_outstanding * params.long_average_time_remaining
+#         - params.shorts_outstanding * params.short_average_time_remaining
+#     )
+#     effective_share_reserves = params.share_reserves - params.share_adjustment
+#     if net_curve_trade > 0:
+#         max_curve_trade = calc_max_sell(...)
 
 # %%
 # Initialize the hyperdrive interafce and deploy the chain
