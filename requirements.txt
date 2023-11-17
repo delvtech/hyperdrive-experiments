@@ -1,0 +1,14 @@
+# TODO point this to github or ideally pypy
+# This should eventually all we need, but we want to do editable installs
+# for all subpackages for dev
+# -e ../agent0/lib/agent0[with-dependencies]
+
+-e ../agent0/lib/agent0[base]
+-e ../agent0/lib/chainsync[base]
+-e ../agent0/lib/ethpy[base]
+-e ../agent0/lib/hyperlogs[base]
+-e ../agent0/lib/hypertypes[base]
+
+# TODO put this dependency in chainsync
+--find-links="../agent0/packages/hyperdrivepy"
+hyperdrivepy
