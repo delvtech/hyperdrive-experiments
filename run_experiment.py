@@ -9,6 +9,7 @@ import wandb
 # pylint: disable=missing-function-docstring,missing-return-doc,missing-return-type-doc
 YOUR_AGENT0_INSTALL_FOLDER = "elfpy"
 
+
 def run_experiment(config=None):
     # Initialize a new wandb run
     with wandb.init(config=config) as run:  # type: ignore

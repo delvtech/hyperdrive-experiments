@@ -147,7 +147,14 @@ breakeven_value = df2.loc[df2.username == "share price", "apr"].values.mean()
 if isinstance(breakeven_value, np.ndarray):
     breakeven_value = breakeven_value.item()
 # draw a transparent horizontal plane at the breakeven value
-ax.plot_surface(xi, yi, np.full_like(zi, breakeven_value), alpha=0.5, label="Breakeven", color="green")
+ax.plot_surface(
+    xi,
+    yi,
+    np.full_like(zi, breakeven_value),
+    alpha=0.5,
+    label="Breakeven",
+    color="green",
+)
 
 # Custom legend
 apr_patch = mpatches.Patch(color="blue", label="apr")
@@ -199,7 +206,11 @@ for vol in [0.01, 0.1]:
     df2temp = copy(df2.loc[idx, :])
     df2temp["DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"] = vol
     line = model.predict(df2temp)
-    plt.plot(df2temp["CURVE_FEE"], line, label=f"DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY={vol:,.0%}")
+    plt.plot(
+        df2temp["CURVE_FEE"],
+        line,
+        label=f"DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY={vol:,.0%}",
+    )
 # set y-axis format
 plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
 plt.legend()

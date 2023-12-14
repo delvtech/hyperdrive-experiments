@@ -180,7 +180,9 @@ start_time = time.time()
 
 
 def get_max(
-    _interactive_hyperdrive: InteractiveHyperdrive, _share_price: FixedPoint, _current_base: FixedPoint
+    _interactive_hyperdrive: InteractiveHyperdrive,
+    _share_price: FixedPoint,
+    _current_base: FixedPoint,
 ) -> GetMax:
     """Get max trade sizes.
 
@@ -347,15 +349,34 @@ wallet_positions_by_time.loc[:, ["rob"]] = (
 ).fillna(0)
 wallet_positions_by_block["block_number_delta"] = wallet_positions_by_block["block_number"].diff().fillna(0)
 wallet_positions_by_time["timestamp_delta"] = wallet_positions_by_time["timestamp"].diff().dt.total_seconds().fillna(0)
-average_by_block = np.average(wallet_positions_by_block["rob"], weights=wallet_positions_by_block["block_number_delta"])
+average_by_block = np.average(
+    wallet_positions_by_block["rob"],
+    weights=wallet_positions_by_block["block_number_delta"],
+)
 average_by_time = np.average(wallet_positions_by_time["rob"], weights=wallet_positions_by_time["timestamp_delta"])
 if RUNNING_INTERACTIVE or RUNNING_WANDB:
     fig, ax = plt.subplots(2, 1, figsize=(8, 8))
-    ax[0].step(wallet_positions_by_block["block_number"], wallet_positions_by_block["rob"], label="rob's WETH spend")
-    ax[0].axhline(y=average_by_block, color="red", label=f"weighted average by block = {average_by_block:,.0f}")
+    ax[0].step(
+        wallet_positions_by_block["block_number"],
+        wallet_positions_by_block["rob"],
+        label="rob's WETH spend",
+    )
+    ax[0].axhline(
+        y=average_by_block,
+        color="red",
+        label=f"weighted average by block = {average_by_block:,.0f}",
+    )
     ax[0].legend()
-    ax[1].step(wallet_positions_by_time["timestamp"], wallet_positions_by_time["rob"], label="rob's WETH spend")
-    ax[1].axhline(y=average_by_time, color="red", label=f"weighted average by time = {average_by_time:,.0f}")
+    ax[1].step(
+        wallet_positions_by_time["timestamp"],
+        wallet_positions_by_time["rob"],
+        label="rob's WETH spend",
+    )
+    ax[1].axhline(
+        y=average_by_time,
+        color="red",
+        label=f"weighted average by time = {average_by_time:,.0f}",
+    )
     ax[1].legend()
     if RUNNING_INTERACTIVE:
         plt.show()
