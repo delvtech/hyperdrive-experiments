@@ -17,7 +17,6 @@ mkdir -p "$EXPERIMENT_DIR"
 ENV_FILE="$EXPERIMENT_DIR/parameters.env"
 
 # Write fixed environment variables to the file
-echo "AGENT0_INSTALL_FOLDER=$YOUR_AGENT0_INSTALL_FOLDER" >> "$ENV_FILE"
 echo "TERM_DAYS=365" >> "$ENV_FILE"
 echo "AMOUNT_OF_LIQUIDITY=10000000" >> "$ENV_FILE"
 echo "FIXED_RATE=0.035" >> "$ENV_FILE"

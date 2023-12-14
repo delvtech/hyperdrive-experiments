@@ -62,6 +62,8 @@ for folder in EXPERIMENT_FOLDER.iterdir():
                     df_new[param] = value
                 # append it
                 df2 = pd.concat([df2, df_new], ignore_index=True)
+if "AGENT0_INSTALL_FOLDER" in df2.columns:
+    df2 = df2.drop(columns=["AGENT0_INSTALL_FOLDER"])
 df1.to_parquet("agg_results1.parquet")
 df2.to_parquet("agg_results2.parquet")
 
@@ -94,6 +96,14 @@ coef_daily_volume = model.params.DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY
 
 formula = f"apr = {intercept:,.0f} {'+' if coef_curve_fee > 0 else '-'} {abs(coef_curve_fee):,.3f} * CURVE_FEE\n{'+' if coef_daily_volume > 0 else '-'} {abs(coef_daily_volume):,.5f} * DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"
 print(formula)
+
+# %%
+# fancier model
+model = smf.ols(
+    "apr ~ CURVE_FEE + DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY + I(CURVE_FEE*DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY)",
+    data=df2.loc[idx, :],
+).fit()
+model.summary()
 
 # %%
 # surf plot
@@ -195,37 +205,108 @@ display(
         ],
     )
 )
+df2.loc[idx | last_share_price, :].to_csv("bigtable.csv", index=False)
 
 # %%
-df2.loc[idx, :].plot(
-    x="CURVE_FEE",
-    y="apr",
-    kind="scatter",
+# how many of each combination do we have?
+matrix = df2.loc[idx, ["CURVE_FEE", "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY", "apr"]].pivot_table(
+    index="CURVE_FEE", columns="DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY", values=["apr"], aggfunc="count"
 )
-for vol in [0.01, 0.1]:
-    df2temp = copy(df2.loc[idx, :])
-    df2temp["DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"] = vol
-    line = model.predict(df2temp)
-    plt.plot(
-        df2temp["CURVE_FEE"],
-        line,
-        label=f"DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY={vol:,.0%}",
+matrix_formatted = matrix.copy()
+matrix_formatted.columns = matrix.columns.map(lambda x: f"volume={x[1]:,.0%}")
+matrix_formatted.index = matrix.index.map(lambda x: f"{x:,.1%}")
+# matrix_formatted = matrix_formatted.applymap(lambda x: f"{x:,.2%}")
+matrix_formatted = matrix_formatted.reset_index(drop=False)
+display(matrix_formatted.style.hide(axis="index"))
+
+# %%
+print("range in total_volume as a fraction of the mean for each combination:")
+matrix = df2.loc[idx, ["CURVE_FEE", "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY", "total_volume"]].pivot_table(
+    index="CURVE_FEE",
+    columns="DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY",
+    values=["total_volume"],
+    aggfunc=["min", "max", "mean"],
+)
+# normalize min and max in terms of mean
+matrix[("min", "total_volume")] = matrix[("min", "total_volume")] / matrix[("mean", "total_volume")]
+matrix[("max", "total_volume")] = matrix[("max", "total_volume")] / matrix[("mean", "total_volume")]
+# replace values with a string representing normalized_min-normalized_max
+normalized_min = matrix[("min", "total_volume")]
+normalized_max = matrix[("max", "total_volume")]
+matrix_formatted = pd.DataFrame(index=matrix.index, columns=normalized_min.columns)
+# Iterate through each column
+for col in matrix[("mean", "total_volume")].columns:
+    matrix_formatted[col] = (
+        matrix[("min", "total_volume")][col].apply(lambda x: f"{x:.3f}")
+        + "-"
+        + matrix[("max", "total_volume")][col].apply(lambda x: f"{x:.3f}")
     )
+# Now matrix_formatted contains the string representation of normalized_min-normalized_max
+display(matrix_formatted)
+
+# %%
+# little matrix
+matrix = df2.loc[idx, ["CURVE_FEE", "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY", "apr"]].pivot_table(
+    index="CURVE_FEE", columns="DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY", values=["apr"], aggfunc="mean"
+)
+print("lil matrix, apr is the value in the middle")
+matrix_formatted = matrix.copy()
+matrix_formatted.columns = matrix.columns.map(lambda x: f"volume={x[1]:,.0%}")
+matrix_formatted.index = matrix.index.map(lambda x: f"{x:,.1%}")
+matrix_formatted = matrix_formatted.applymap(lambda x: f"{x:,.2%}")
+matrix_formatted = matrix_formatted.reset_index(drop=False)
+display(matrix_formatted.style.hide(axis="index"))
+
+# %%
+# df2.loc[idx, :].plot(
+#     x="CURVE_FEE",
+#     y="apr",
+#     kind="scatter",
+# )
+for vol in np.sort(df2.loc[idx, "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"].unique()):
+    df2temp = copy(df2.loc[idx, :])
+    subidx = df2temp.DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY == vol
+    p = plt.scatter(
+        df2temp.loc[subidx, "CURVE_FEE"],
+        df2temp.loc[subidx, "apr"],
+        label=f"volume={vol:,.0%}",
+        alpha=0.5,
+    )
+    # set edgecolors to facecolor then facecolor to none
+    p.set_edgecolor(p.get_facecolor())
+    p.set_facecolor("none")
+    df2temp["DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"] = vol
+    # line = model.predict(df2temp)
+    # plt.plot(
+    #     df2temp["CURVE_FEE"],
+    #     line,
+    #     label=f"DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY={vol:,.0%}",
+    # )
 # set y-axis format
 plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
 plt.legend()
 plt.show()
 
-df2.loc[idx, :].plot(
-    x="DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY",
-    y="apr",
-    kind="scatter",
-)
-for fee in [0.001, 0.01]:
+# df2.loc[idx, :].plot(
+#     x="DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY",
+#     y="apr",
+#     kind="scatter",
+# )
+for fee in np.sort(df2.loc[idx, "CURVE_FEE"].unique()):
     df2temp = copy(df2.loc[idx, :])
+    subidx = df2temp.CURVE_FEE == fee
+    p = plt.scatter(
+        df2temp.loc[subidx, "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"],
+        df2temp.loc[subidx, "apr"],
+        label=f"fee={fee:.1%}",
+        alpha=0.5,
+    )
+    # set edgecolors to facecolor then facecolor to none
+    p.set_edgecolor(p.get_facecolor())
+    p.set_facecolor("none")
     df2temp["CURVE_FEE"] = fee
-    line = model.predict(df2temp)
-    plt.plot(df2temp["DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"], line, label=f"fee={fee:.1%}")
+    # line = model.predict(df2temp)
+    # plt.plot(df2temp["DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"], line, label=f"fee={fee:.1%}")
 plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
 plt.legend()
 plt.show()

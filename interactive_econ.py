@@ -17,13 +17,13 @@ from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from typing import NamedTuple
 
-from dotenv import load_dotenv
 import numpy as np
 import pandas as pd
+from dotenv import load_dotenv
 from fixedpointmath import FixedPoint
 from matplotlib import pyplot as plt
-import wandb
 
+import wandb
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 
 # pylint: disable=bare-except
@@ -34,6 +34,7 @@ from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 # pylint: disable=invalid-name
 # don't need docstrings in scripts
 # pylint: disable=missing-function-docstring,missing-return-doc,missing-return-type-doc,bad-docstring-quotes
+# ruff: noqa: D101, D102, D103, PLR2004
 
 
 # %%

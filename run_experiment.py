@@ -1,13 +1,12 @@
 """Run an experiment."""
 import os
-import sys
-from pathlib import Path
+from runpy import run_path
 
 import wandb
 
 # don't need docstrings in scripts
 # pylint: disable=missing-function-docstring,missing-return-doc,missing-return-type-doc
-YOUR_AGENT0_INSTALL_FOLDER = "elfpy"
+# ruff: noqa: D103
 
 
 def run_experiment(config=None):
@@ -23,9 +22,8 @@ def run_experiment(config=None):
             os.environ[param] = str(config[param])
 
         # run the experiment in interactive_econ.py
-        # sys.path.append(str(Path(__file__).parent / YOUR_AGENT0_INSTALL_FOLDER / "lib"))
-        print(f"{sys.path=}")
-        import examples.interactive_econ  # pylint: disable=import-outside-toplevel,unused-import
+        # import examples.interactive_econ  # pylint: disable=import-outside-toplevel,unused-import
+        run_path("interactive_econ.py")
 
 
 if __name__ == "__main__":
