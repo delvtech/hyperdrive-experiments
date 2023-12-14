@@ -29,8 +29,15 @@ echo "DB_PORT=$((11000+$NEXT_EXPERIMENT_ID))" >> "$ENV_FILE"
 echo "CHAIN_PORT=$((10000+$NEXT_EXPERIMENT_ID))" >> "$ENV_FILE"
 
 # Generate random values within given ranges
-echo "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY=$(awk -v min=0.01 -v max=0.1 'BEGIN{srand(); print min+rand()*(max-min)}')" >> "$ENV_FILE"
-echo "CURVE_FEE=$(awk -v min=0.001 -v max=0.01 'BEGIN{srand(); print min+rand()*(max-min)}')" >> "$ENV_FILE"
+# echo "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY=$(awk -v min=0.01 -v max=0.1 'BEGIN{srand(); print min+rand()*(max-min)}')" >> "$ENV_FILE"
+# echo "CURVE_FEE=$(awk -v min=0.001 -v max=0.01 'BEGIN{srand(); print min+rand()*(max-min)}')" >> "$ENV_FILE"
+
+# Generate random values from provided values
+VOLUME_VALUES=(0.01 0.05 0.1)
+echo "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY=${VOLUME_VALUES[$RANDOM % ${#VOLUME_VALUES[@]}]}" >> "$ENV_FILE"
+CURVE_FEES=(0.001 0.005 0.01)
+echo "CURVE_FEE=${CURVE_FEES[$RANDOM % ${#CURVE_FEES[@]}]}" >> "$ENV_FILE"
+
 
 # Run the experiment script within the experiment directory
 (cd "$EXPERIMENT_DIR" && source parameters.env && echo "Experiment ID: $NEXT_EXPERIMENT_ID" && python ../../interactive_econ.py)
