@@ -3,9 +3,6 @@
 # Base directory for experiments
 EXPERIMENTS_DIR="./experiments"
 
-# Your agent0 install folder (has to be at the same level as this repo's folder)
-YOUR_AGENT0_INSTALL_FOLDER="elfpy"
-
 # Create experiments directory if it doesn't exist
 mkdir -p "$EXPERIMENTS_DIR"
 
@@ -36,4 +33,4 @@ echo "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY=$(awk -v min=0.01 -v max=0.1 'BEGIN{s
 echo "CURVE_FEE=$(awk -v min=0.001 -v max=0.01 'BEGIN{srand(); print min+rand()*(max-min)}')" >> "$ENV_FILE"
 
 # Run the experiment script within the experiment directory
-(cd "$EXPERIMENT_DIR" && source parameters.env && echo "Experiment ID: $NEXT_EXPERIMENT_ID" && python ../../../$AGENT0_INSTALL_FOLDER/lib/agent0/examples/interactive_econ.py)
+(cd "$EXPERIMENT_DIR" && source parameters.env && echo "Experiment ID: $NEXT_EXPERIMENT_ID" && python ../../interactive_econ.py)
