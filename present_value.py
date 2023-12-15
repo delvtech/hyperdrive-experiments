@@ -26,9 +26,7 @@ anvil_address = "127.0.0.1:8545"
 abi_dir = "packages/hyperdrive/src/abis/"
 
 # Deployer is the pre-funded account 0 on the Delv devnet
-deployer_private_key: str = (
-    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-)
+deployer_private_key: str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
 # Factory initializaiton parameters
 initial_variable_rate = FixedPoint("0.05")
@@ -45,9 +43,7 @@ initial_liquidity = FixedPoint(100_000_000)  # 100M ETH
 initial_share_price = FixedPoint(1)
 minimum_share_reserves = FixedPoint(10)
 minimum_transaction_amount = FixedPoint("0.001")
-time_stretch = (
-    FixedPoint("0.04665") * (initial_fixed_rate * FixedPoint(100))
-) / FixedPoint("5.24592")
+time_stretch = (FixedPoint("0.04665") * (initial_fixed_rate * FixedPoint(100))) / FixedPoint("5.24592")
 position_duration = 604800  # 1 week
 checkpoint_duration = 3600  # 1 hour
 oracle_size = 10
