@@ -401,7 +401,7 @@ if len(bad_experiments) > 0:
 # inspect df2
 experiment = 0
 df2temp = df2.loc[df2["experiment"] == experiment]
-display(df2temp)
+# display(df2temp)
 display(
     df2temp.style.format(
         subset=[
