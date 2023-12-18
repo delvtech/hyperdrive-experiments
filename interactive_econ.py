@@ -21,10 +21,11 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from fixedpointmath import FixedPoint
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt  # pylint: disable=import-error,no-name-in-module
 
 import wandb
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
+from agent0.hyperdrive.policies import Zoo
 
 # pylint: disable=bare-except
 # ruff: noqa: A001 (allow shadowing a python builtin)
@@ -33,8 +34,7 @@ from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 # don't make me use upper case variable names
 # pylint: disable=invalid-name
 # don't need docstrings in scripts
-# pylint: disable=missing-function-docstring,missing-return-doc,missing-return-type-doc,bad-docstring-quotes
-# ruff: noqa: D101, D102, D103, PLR2004
+# pylint: disable=missing-function-docstring
 
 
 # %%
@@ -78,29 +78,24 @@ class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-
     db_port: int = 5_433
     chain_port: int = 10_000
     daily_volume_percentage_of_liquidity: float = 0.01  # 1%
-    term_days: int = 20  # 20 days for quick testing purposes. actual experiment are 365 days.
+    term_days: int = 5  # 20 days for quick testing purposes. actual experiment are 365 days.
     float_fmt: str = ",.0f"
     display_cols: list[str] = field(default_factory=lambda: cols + ["base_token_type", "maturity_time"])
     display_cols_with_hpr: list[str] = field(default_factory=lambda: cols + ["hpr", "apr"])
     amount_of_liquidity: int = 10_000_000
-    fixed_rate: float = 0.035  # 3.5%
+    max_trades_per_day: int = 10
+    fixed_rate: FixedPoint = FixedPoint(0.05)  # 5.0%
     curve_fee: FixedPoint = FixedPoint("0.01")  # 1%, 10% default
     flat_fee: FixedPoint = FixedPoint("0.0001")  # 1bps, 5bps default
     governance_fee: FixedPoint = FixedPoint("0.1")  # 10%, 15% default
     randseed: int = 0
     term_seconds: int = 0
-    starting_fixed_rate: FixedPoint = FixedPoint(0)
-    starting_variable_rate: FixedPoint = FixedPoint(0)
+    variable_rate: FixedPoint = FixedPoint(0.035)
     calc_pnl: bool = False
+    use_duck_db: bool = False
 
     def calculate_values(self):
         self.term_seconds: int = 60 * 60 * 24 * self.term_days
-        # used to scale up to the equivalent of a year
-        scaling_ratio = 365 / self.term_days
-        # this interest rate gives us the same price as a 3.% fixed rate for 1 year
-        rate_required_for_same_price: float = min(1, self.fixed_rate * scaling_ratio)
-        self.starting_fixed_rate: FixedPoint = FixedPoint(rate_required_for_same_price)
-        self.starting_variable_rate: FixedPoint = FixedPoint(rate_required_for_same_price)
 
 
 def safe_cast(_type: type, _value: str, _debug: bool = False):
@@ -142,7 +137,7 @@ rng = np.random.default_rng(seed=int(exp.randseed))
 # %%
 # set up chain
 print(f"Experiment ID {exp.chain_port-10_000}")
-chain = LocalChain(LocalChain.Config(db_port=exp.db_port, chain_port=exp.chain_port))
+chain = LocalChain(LocalChain.Config(db_port=exp.db_port, chain_port=exp.chain_port, use_duck_db=exp.use_duck_db))
 
 # %%
 # Parameters for pool initialization. If empty, defaults to default values, allows for custom values if needed
@@ -150,34 +145,37 @@ config = InteractiveHyperdrive.Config(
     position_duration=exp.term_seconds,
     checkpoint_duration=60 * 60 * 24,  # 1 day
     initial_liquidity=FixedPoint(20),
-    initial_fixed_rate=exp.starting_fixed_rate,
-    initial_variable_rate=exp.starting_variable_rate,
+    initial_fixed_rate=exp.fixed_rate,
+    initial_variable_rate=exp.variable_rate,
     curve_fee=exp.curve_fee,
     flat_fee=exp.flat_fee,
     governance_fee=exp.governance_fee,
     calc_pnl=exp.calc_pnl,
+    use_duck_db=exp.use_duck_db,
 )
 MINIMUM_TRANSACTION_AMOUNT = config.minimum_transaction_amount
-for k, v in config.__dict__.items():
-    print(f"{k:26} : {v}")
-print(f"{'term length':27}: {exp.term_days}")
 interactive_hyperdrive = InteractiveHyperdrive(chain, config)
-print(f"spot price = {interactive_hyperdrive.hyperdrive_interface.calc_spot_price()}")
 
 # %%
 # set up agents
 larry = interactive_hyperdrive.init_agent(base=FixedPoint(exp.amount_of_liquidity), name="larry")
 larry.add_liquidity(base=FixedPoint(exp.amount_of_liquidity))  # 10 million
 rob = interactive_hyperdrive.init_agent(base=FixedPoint(exp.amount_of_liquidity), name="rob")
-# this verifies that spot price does not change after adding liquidity
-print(f"spot price after adding liquidity = {interactive_hyperdrive.hyperdrive_interface.calc_spot_price()}")
+andy = interactive_hyperdrive.init_agent(
+    base=FixedPoint(exp.amount_of_liquidity*100),
+    name="andy",
+    policy=Zoo.lp_and_arb,
+    policy_config=Zoo.lp_and_arb.Config(
+        lp_portion=FixedPoint(0),
+        high_fixed_rate_thresh=FixedPoint(0),
+        low_fixed_rate_thresh=FixedPoint(0),
+        )
+    )
 
 # %%
 # do some trades
 Max = NamedTuple("Max", [("base", FixedPoint), ("bonds", FixedPoint)])
 GetMax = NamedTuple("GetMax", [("long", Max), ("short", Max)])
-
-start_time = time.time()
 
 
 def get_max(
@@ -210,11 +208,13 @@ def get_max(
 
 # sourcery skip: avoid-builtin-shadow, do-not-use-bare-except, invert-any-all,
 # remove-unnecessary-else, swap-if-else-branches
+start_time = time.time()
 for day in range(exp.term_days):
     amount_to_trade_base = FixedPoint(exp.amount_of_liquidity * exp.daily_volume_percentage_of_liquidity)
+    trades_today = 0
     while amount_to_trade_base > MINIMUM_TRANSACTION_AMOUNT:
-        spot_price = interactive_hyperdrive.hyperdrive_interface.calc_spot_price()
-        share_price = interactive_hyperdrive.hyperdrive_interface.current_pool_state.pool_info.share_price
+        pool_state = interactive_hyperdrive.hyperdrive_interface.current_pool_state
+        share_price = pool_state.pool_info.share_price
         max = None
         wallet = rob.wallet
         event = None
@@ -224,7 +224,7 @@ for day in range(exp.term_days):
                     max = get_max(interactive_hyperdrive, share_price, rob.wallet.balance.amount)
                     amount_to_trade_bonds = (
                         interactive_hyperdrive.hyperdrive_interface.calc_bonds_out_given_shares_in_down(
-                            amount_to_trade_base / share_price
+                            amount_to_trade_base / share_price, pool_state
                         )
                     )
                     trade_size_bonds = min(amount_to_trade_bonds, short.balance, max.long.bonds)
@@ -245,7 +245,7 @@ for day in range(exp.term_days):
                     max = get_max(interactive_hyperdrive, share_price, rob.wallet.balance.amount)
                     amount_to_trade_bonds = (
                         interactive_hyperdrive.hyperdrive_interface.calc_bonds_out_given_shares_in_down(
-                            amount_to_trade_base / share_price
+                            amount_to_trade_base / share_price, pool_state
                         )
                     )
                     trade_size_bonds = min(amount_to_trade_bonds, long.balance, max.short.bonds)
@@ -257,54 +257,50 @@ for day in range(exp.term_days):
             if amount_to_trade_base > 0:
                 max = get_max(interactive_hyperdrive, share_price, rob.wallet.balance.amount)
                 amount_to_trade_bonds = interactive_hyperdrive.hyperdrive_interface.calc_bonds_out_given_shares_in_down(
-                    amount_to_trade_base / share_price
+                    amount_to_trade_base / share_price, pool_state
                 )
                 trade_size_bonds = min(amount_to_trade_bonds, max.short.bonds)
                 if trade_size_bonds > MINIMUM_TRANSACTION_AMOUNT:
                     event = rob.open_short(trade_size_bonds)
                     amount_to_trade_base -= event.base_amount
-        lp_share_price = interactive_hyperdrive.hyperdrive_interface.current_pool_state.pool_info.lp_share_price
-        lp_value = larry.wallet.lp_tokens * lp_share_price
-        print(f"day {day}: pnl={float(lp_value-exp.amount_of_liquidity):,.0f}", end="\r", flush=True)
+        print(f"day {day} secs/day={(time.time() - start_time)/(day+1):,.1f}", end="\r", flush=True)
+        trades_today += 1
         if RUNNING_WANDB:
             wandb.log({"day": day})
-            wandb.log({"lp_value": float(lp_value - exp.amount_of_liquidity)})
-        if amount_to_trade_base <= 0:
+        if amount_to_trade_base < MINIMUM_TRANSACTION_AMOUNT or trades_today >= exp.max_trades_per_day:
             break  # end the day if we've traded enough
     chain.advance_time(datetime.timedelta(days=1), create_checkpoints=False)
 print(f"experiment finished in {(time.time() - start_time):,.2f} seconds")
 
 # %%
-# close all positions
-print("wallets before liquidation:")
-current_wallet = interactive_hyperdrive.get_current_wallet()
-display(
-    current_wallet.loc[current_wallet.token_type != "WETH", exp.display_cols]
-    .style.format(
-        subset=[col for col in current_wallet.columns if current_wallet.dtypes[col] == "float64"],
-        formatter="{:" + exp.float_fmt + "}",
-    )
-    .hide(axis="index")
-)
+# temporary inspect
+# pool_state = interactive_hyperdrive.get_pool_state()
+# pool_state.to_parquet("/nvme/experiments/pool_state.parquet")
+# effective_shares = pool_state.share_reserves.iloc[-1] + pool_state.share_adjustment.iloc[-1]
+# print(f"bonds={pool_state.bond_reserves.iloc[-1]:,.0f} effective_shares={effective_shares:,.0f} rate={pool_state.fixed_rate.iloc[-1]:7.2%}")
+
+# %%
+# finalize trading
 rob.liquidate()
-larry.remove_liquidity(shares=larry.wallet.lp_tokens)
-print("wallets after liquidation:")
-current_wallet = interactive_hyperdrive.get_current_wallet()
-display(
-    current_wallet.loc[current_wallet.token_type != "WETH", exp.display_cols]
-    .style.format(
-        subset=[col for col in current_wallet.columns if current_wallet.dtypes[col] == "float64"],
-        formatter="{:" + exp.float_fmt + "}",
-    )
-    .hide(axis="index")
-)
+event_list = andy.execute_policy_action()
+for event in event_list:
+    print(event)
+larry.remove_liquidity(larry.wallet.lp_tokens)
+
+# %%
+# ensure analysis is done
+latest_block = interactive_hyperdrive.hyperdrive_interface.get_current_block()
+block_number = interactive_hyperdrive.hyperdrive_interface.get_block_number(latest_block)
+while interactive_hyperdrive.hyperdrive_interface.current_pool_state.block_number < block_number:
+    print(f"waiting for block {block_number}")
+    time.sleep(1)
 
 # %%
 # show WETH balance after closing all positions
 pool_info = interactive_hyperdrive.get_pool_state()
-starting_fixed_rate = float(pool_info.fixed_rate.iloc[0])
+initial_fixed_rate = float(pool_info.fixed_rate.iloc[0])
 ending_fixed_rate = float(pool_info.fixed_rate.iloc[-1])
-print(f"starting fixed rate is {starting_fixed_rate:7.2%}")
+print(f"starting fixed rate is {initial_fixed_rate:7.2%}")
 print(f"  ending fixed rate is {ending_fixed_rate:7.2%}")
 governance_fees = float(interactive_hyperdrive.hyperdrive_interface.get_gov_fees_accrued(block_number=None))
 current_wallet = deepcopy(interactive_hyperdrive.get_current_wallet())
@@ -312,8 +308,13 @@ current_wallet = deepcopy(interactive_hyperdrive.get_current_wallet())
 # index
 non_weth_index = (current_wallet.token_type != "WETH") & (current_wallet.position > float(MINIMUM_TRANSACTION_AMOUNT))
 weth_index = current_wallet.token_type == "WETH"
+ws_index = current_wallet.token_type == "WITHDRAWAL_SHARE"
+is_larry = current_wallet.username == "larry"
 # simple PNL based on WETH balance
 current_wallet.loc[weth_index, ["pnl"]] = current_wallet.loc[weth_index, ["position"]].values - exp.amount_of_liquidity
+# add withdrawal shares at 1:1 with WETH
+current_wallet.loc[weth_index, ["position"]] += current_wallet.loc[ws_index, ["position"]].values
+current_wallet.loc[weth_index, ["pnl"]] += current_wallet.loc[ws_index, ["position"]].values
 # add HPR
 current_wallet.loc[:, ["hpr"]] = current_wallet["pnl"] / (current_wallet["position"] - current_wallet["pnl"])
 
@@ -324,15 +325,6 @@ weth_changes.loc[:, "day"] = (weth_changes.timestamp - weth_changes.timestamp.mi
 weth_changes_agg = weth_changes[["day", "absDelta"]].groupby("day").sum().reset_index()
 total_volume = weth_changes_agg.absDelta.sum()
 print(f"  total volume is {total_volume:,.0f}")
-wallet_positions_by_block = (
-    wallet_positions.loc[wallet_positions.token_type == "WETH", :]
-    .pivot(
-        index="block_number",
-        columns="username",
-        values="position",
-    )
-    .reset_index()
-)
 wallet_positions_by_time = (
     wallet_positions.loc[wallet_positions.token_type == "WETH", :]
     .pivot(
@@ -342,47 +334,12 @@ wallet_positions_by_time = (
     )
     .reset_index()
 )
-wallet_positions_by_block.loc[:, ["rob"]] = (
-    wallet_positions_by_block["rob"].max() - wallet_positions_by_block["rob"]
-).fillna(0)
 wallet_positions_by_time.loc[:, ["rob"]] = (
     wallet_positions_by_time["rob"].max() - wallet_positions_by_time["rob"]
 ).fillna(0)
-wallet_positions_by_block["block_number_delta"] = wallet_positions_by_block["block_number"].diff().fillna(0)
 wallet_positions_by_time["timestamp_delta"] = wallet_positions_by_time["timestamp"].diff().dt.total_seconds().fillna(0)
-average_by_block = np.average(
-    wallet_positions_by_block["rob"],
-    weights=wallet_positions_by_block["block_number_delta"],
-)
 average_by_time = np.average(wallet_positions_by_time["rob"], weights=wallet_positions_by_time["timestamp_delta"])
-if RUNNING_INTERACTIVE or RUNNING_WANDB:
-    fig, ax = plt.subplots(2, 1, figsize=(8, 8))
-    ax[0].step(
-        wallet_positions_by_block["block_number"],
-        wallet_positions_by_block["rob"],
-        label="rob's WETH spend",
-    )
-    ax[0].axhline(
-        y=average_by_block,
-        color="red",
-        label=f"weighted average by block = {average_by_block:,.0f}",
-    )
-    ax[0].legend()
-    ax[1].step(
-        wallet_positions_by_time["timestamp"],
-        wallet_positions_by_time["rob"],
-        label="rob's WETH spend",
-    )
-    ax[1].axhline(
-        y=average_by_time,
-        color="red",
-        label=f"weighted average by time = {average_by_time:,.0f}",
-    )
-    ax[1].legend()
-    if RUNNING_INTERACTIVE:
-        plt.show()
-    else:
-        wandb.log({"wallet_positions": wandb.Image(fig)})
+# adjust the random trader's position to be their average spend
 idx = weth_index & (current_wallet.username == "rob")
 current_wallet.loc[idx, ["position"]] = average_by_time  # type: ignore
 current_wallet.loc[idx, ["hpr"]] = (
@@ -440,12 +397,14 @@ if RUNNING_WANDB:
     wandb.log({"results2": wandb.Table(dataframe=results2)})
     wandb.log({"wallet_positions": wandb.Table(dataframe=wallet_positions)})
     wandb.log({"current_wallet": wandb.Table(dataframe=current_wallet)})
+    wandb.log({"pool_info": wandb.Table(dataframe=pool_info)})
     wandb.log({"lp_value": results2.loc[results2.username == "larry", "pnl"].values[0]})
 else:
     results1.to_parquet("results1.parquet", index=False)
     results2.to_parquet("results2.parquet", index=False)
     wallet_positions.to_parquet("wallet_positions.parquet", index=False)
     current_wallet.to_parquet("current_wallet.parquet", index=False)
+    pool_info.to_parquet("pool_info.parquet", index=False)
 # display final results
 if non_weth_index.sum() > 0:
     print("material non-WETH positions:")
@@ -461,8 +420,8 @@ if RUNNING_INTERACTIVE:
         results2.style.format(
             subset=[
                 col
-                for col in current_wallet.columns
-                if current_wallet.dtypes[col] == "float64" and col not in ["hpr", "apr"]
+                for col in results2.columns
+                if results2.dtypes[col] == "float64" and col not in ["hpr", "apr"]
             ],
             formatter="{:" + exp.float_fmt + "}",
         )
@@ -474,5 +433,24 @@ if RUNNING_INTERACTIVE:
     )
 else:
     print(results2)
+
+# %%
+# plot rates
+if RUNNING_INTERACTIVE:
+    from matplotlib import ticker
+    pool_info.plot(
+        x="block_number",
+        y=["fixed_rate","variable_rate"],
+    )
+    plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+    # get major ticks every 0.5%
+    plt.gca().yaxis.set_major_locator(ticker.MultipleLocator(0.005))
+    # plot horizontal line at 3.5%
+    # plt.axhline(0.035, color="red")
+    plt.show()
+
+# %%
+# clear resources
+chain.cleanup()
 
 # %%
