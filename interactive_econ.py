@@ -33,8 +33,10 @@ from agent0.hyperdrive.policies import Zoo
 # pylint: disable=redefined-builtin
 # don't make me use upper case variable names
 # pylint: disable=invalid-name
-# don't need docstrings in scripts
-# pylint: disable=missing-function-docstring
+# let me use long lines
+# pylint: disable=line-too-long
+# let me use magic numbers
+# ruff: noqa: PLR2004
 
 
 # %%
@@ -78,13 +80,13 @@ class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-
     db_port: int = 5_433
     chain_port: int = 10_000
     daily_volume_percentage_of_liquidity: float = 0.01  # 1%
-    term_days: int = 1  # 20 days for quick testing purposes. actual experiment are 365 days.
+    term_days: int = 1
     float_fmt: str = ",.0f"
     display_cols: list[str] = field(default_factory=lambda: cols + ["base_token_type", "maturity_time"])
     display_cols_with_hpr: list[str] = field(default_factory=lambda: cols + ["hpr", "apr"])
     amount_of_liquidity: int = 10_000_000
     max_trades_per_day: int = 10
-    fixed_rate: FixedPoint = FixedPoint(0.05)  # 5.0%
+    fixed_rate: FixedPoint = FixedPoint(0.02)  # 5.0%
     curve_fee: FixedPoint = FixedPoint("0.01")  # 1%, 10% default
     flat_fee: FixedPoint = FixedPoint("0.0001")  # 1bps, 5bps default
     governance_fee: FixedPoint = FixedPoint("0.1")  # 10%, 15% default
@@ -93,6 +95,7 @@ class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-
     variable_rate: FixedPoint = FixedPoint(0.035)
     calc_pnl: bool = True
     use_duck_db: bool = False
+    use_average_spend: bool = False
 
     def calculate_values(self):
         self.term_seconds: int = 60 * 60 * 24 * self.term_days
@@ -160,16 +163,8 @@ interactive_hyperdrive = InteractiveHyperdrive(chain, config)
 # set up agents
 larry = interactive_hyperdrive.init_agent(base=FixedPoint(exp.amount_of_liquidity), name="larry")
 rob = interactive_hyperdrive.init_agent(base=FixedPoint(exp.amount_of_liquidity), name="rob")
-andy = interactive_hyperdrive.init_agent(
-    base=FixedPoint(exp.amount_of_liquidity*100),
-    name="andy",
-    policy=Zoo.lp_and_arb,
-    policy_config=Zoo.lp_and_arb.Config(
-        lp_portion=FixedPoint(0),
-        high_fixed_rate_thresh=FixedPoint(0),
-        low_fixed_rate_thresh=FixedPoint(0),
-        )
-    )
+andy = interactive_hyperdrive.init_agent(base=FixedPoint(exp.amount_of_liquidity*100),name="andy",
+    policy=Zoo.lp_and_arb,policy_config=Zoo.lp_and_arb.Config(lp_portion=FixedPoint(0),high_fixed_rate_thresh=FixedPoint(0),low_fixed_rate_thresh=FixedPoint(0)))
 print("=== STARTING WETH BALANCES ===")
 starting_base = {}
 for agent in interactive_hyperdrive._pool_agents:  # pylint: disable=protected-access
@@ -180,9 +175,9 @@ larry.add_liquidity(base=FixedPoint(exp.amount_of_liquidity))  # 10 million
 
 # %%
 # Arbitrage Andy does one trade 📈
-event_list = andy.execute_policy_action()
-for event in event_list:
-    print(event)
+# event_list = andy.execute_policy_action()
+# for event in event_list:
+#     print(event)
 
 # %%
 # Random Rob does a buncha trades 🤪
@@ -299,7 +294,7 @@ print(f"experiment finished in {(time.time() - start_time):,.2f} seconds")
 current_wallet = deepcopy(interactive_hyperdrive.get_current_wallet())
 if RUNNING_INTERACTIVE:
     display(
-        current_wallet.loc[:,exp.display_cols].style.format(
+        current_wallet.loc[current_wallet.position != 0,exp.display_cols].style.format(
             subset=[
                 col
                 for col in current_wallet.columns
@@ -308,6 +303,7 @@ if RUNNING_INTERACTIVE:
             formatter="{:" + exp.float_fmt + "}",
         )
         .hide(axis="index")
+        .hide(axis="columns", subset=["pnl", "maturity_time"])
     )
 else:
     print(current_wallet)
@@ -317,21 +313,10 @@ else:
 events = rob.liquidate()
 for event in events:
     print(event)
-# event_list = andy.execute_policy_action()
-# for event in event_list:
-#     print(event)
 events = andy.liquidate()
 for event in events:
     print(event)
 larry.remove_liquidity(larry.wallet.lp_tokens)
-
-# %%
-# ensure analysis is done
-latest_block = interactive_hyperdrive.hyperdrive_interface.get_current_block()
-block_number = interactive_hyperdrive.hyperdrive_interface.get_block_number(latest_block)
-while interactive_hyperdrive.hyperdrive_interface.current_pool_state.block_number < block_number:
-    print(f"waiting for block {block_number}")
-    time.sleep(1)
 
 # %%
 # conclude
@@ -343,6 +328,23 @@ print(f"  ending fixed rate is {ending_fixed_rate:7.2%}")
 governance_fees = float(interactive_hyperdrive.hyperdrive_interface.get_gov_fees_accrued(block_number=None))
 current_wallet = deepcopy(interactive_hyperdrive.get_current_wallet())
 
+wallet_positions = deepcopy(interactive_hyperdrive.get_wallet_positions())
+weth_changes = wallet_positions.loc[wallet_positions.token_type == "WETH", :].copy()
+weth_changes.loc[:, "absDelta"] = abs(weth_changes["delta"])
+weth_changes.loc[:, "day"] = (weth_changes.timestamp - weth_changes.timestamp.min()).dt.days + 1
+weth_changes_agg = weth_changes[["day", "absDelta"]].groupby("day").sum().reset_index()
+total_volume = weth_changes_agg.absDelta.sum()
+print(f"  total volume is {total_volume:,.0f}")
+print(f"  curve_fee={float(exp.curve_fee):,.2%}")
+print(f"  volume/day={exp.daily_volume_percentage_of_liquidity:,.2%} of TVL")
+# time passed
+time_passed_days = (pool_info.timestamp.iloc[-1] - pool_info.timestamp.iloc[0]).total_seconds() / 60 / 60 / 24
+print(f"time passed = {time_passed_days:.2f} days")
+apr_factor = 365 / time_passed_days
+print(f"  to scale APR from HPR we multiply by {apr_factor:,.0f} (365/{time_passed_days:.2f})")
+print(f"  share price went from {pool_info.share_price.iloc[0]:.4f} to {pool_info.share_price.iloc[-1]:.4f}")
+
+# do return calculations
 non_weth_index = (current_wallet.token_type != "WETH") & (current_wallet.position > float(MINIMUM_TRANSACTION_AMOUNT))
 weth_index = current_wallet.token_type == "WETH"
 ws_index = current_wallet.token_type == "WITHDRAWAL_SHARE"
@@ -357,64 +359,29 @@ for user in current_wallet.username.unique():
         # simple PNL based on starting WETH balance
         current_wallet.loc[user_idx & weth_index, ["pnl"]] = current_wallet.loc[user_idx & weth_index, ["position"]].values - float(starting_base[user])
 # add HPR
-for idx,row in current_wallet.iterrows():
-    # current_wallet.loc[:, ["hpr"]] = current_wallet["pnl"] / (current_wallet["position"] - current_wallet["pnl"])
-    row["hpr"] = row["pnl"] / (row["position"] - row["pnl"])
+mask = current_wallet['pnl'].notna() & current_wallet['position'].notna()
+current_wallet.loc[mask, 'hpr'] = current_wallet.loc[mask, 'pnl'] / (current_wallet.loc[mask, 'position'] - current_wallet.loc[mask, 'pnl'])
 
-wallet_positions = deepcopy(interactive_hyperdrive.get_wallet_positions())
-weth_changes = wallet_positions.loc[wallet_positions.token_type == "WETH", :].copy()
-weth_changes.loc[:, "absDelta"] = abs(weth_changes["delta"])
-weth_changes.loc[:, "day"] = (weth_changes.timestamp - weth_changes.timestamp.min()).dt.days + 1
-weth_changes_agg = weth_changes[["day", "absDelta"]].groupby("day").sum().reset_index()
-total_volume = weth_changes_agg.absDelta.sum()
-print(f"  total volume is {total_volume:,.0f}")
-wallet_positions_by_time = (
-    wallet_positions.loc[wallet_positions.token_type == "WETH", :]
-    .pivot(
-        index="timestamp",
-        columns="username",
-        values="position",
-    )
-    .reset_index()
-)
-wallet_positions_by_time.loc[:, ["rob"]] = (
-    wallet_positions_by_time["rob"].max() - wallet_positions_by_time["rob"]
-).fillna(0)
-wallet_positions_by_time["timestamp_delta"] = wallet_positions_by_time["timestamp"].diff().dt.total_seconds().fillna(0)
-average_by_time = np.average(wallet_positions_by_time["rob"], weights=wallet_positions_by_time["timestamp_delta"])
-# adjust the random trader's position to be their average spend
-idx = weth_index & (current_wallet.username == "rob")
-current_wallet.loc[idx, ["position"]] = average_by_time  # type: ignore
-current_wallet.loc[idx, ["hpr"]] = (
-    current_wallet.loc[idx, ["pnl"]].astype("float").iloc[0].values
-    / current_wallet.loc[idx, ["position"]].astype("float").iloc[0].values
-)  # type: ignore
+# calculate average spend if it's turned on
+if exp.use_average_spend is True:
+    wallet_positions_by_time = (wallet_positions.loc[wallet_positions.token_type == "WETH", :].pivot(index="timestamp",columns="username",values="position").reset_index())
+    wallet_positions_by_time.loc[:, ["rob"]] = (wallet_positions_by_time["rob"].max() - wallet_positions_by_time["rob"]).fillna(0)
+    wallet_positions_by_time["timestamp_delta"] = wallet_positions_by_time["timestamp"].diff().dt.total_seconds().fillna(0)
+    average_by_time = np.average(wallet_positions_by_time["rob"], weights=wallet_positions_by_time["timestamp_delta"])
+    # adjust the random trader's position to be their average spend
+    idx = weth_index & (current_wallet.username == "rob")
+    current_wallet.loc[idx, ["position"]] = average_by_time  # type: ignore
+    current_wallet.loc[idx, ["hpr"]] = (current_wallet.loc[idx, ["pnl"]].astype("float").iloc[0].values / current_wallet.loc[idx, ["position"]].astype("float").iloc[0].values)  # type: ignore
 
-# add governance row
-new_row = current_wallet.iloc[len(current_wallet) - 1].copy()
-new_row["username"] = "governance"
-new_row["position"], new_row["pnl"] = governance_fees, governance_fees
-new_row["hpr"] = np.inf
-new_row["token_type"] = "WETH"
-current_wallet = pd.concat([current_wallet, new_row.to_frame().T], ignore_index=True)
-
-# add total row
-new_row = current_wallet.iloc[len(current_wallet) - 1].copy()
-new_row["username"] = "total"
-new_row["position"] = float(current_wallet["position"].values.sum())  # type: ignore
-new_row["pnl"] = current_wallet.loc[current_wallet.token_type.values == "WETH", ["pnl"]].values.sum()  # type: ignore
-new_row["hpr"] = new_row["pnl"] / (new_row["position"] - new_row["pnl"])
-new_row["token_type"] = "WETH"
-current_wallet = pd.concat([current_wallet, new_row.to_frame().T], ignore_index=True)
-
-# add share price row
-new_row = current_wallet.iloc[len(current_wallet) - 1].copy()
-new_row["username"] = "share price"
-new_row["position"] = pool_info.share_price.iloc[-1] * 1e7
-new_row["pnl"] = pool_info.share_price.iloc[-1] * 1e7 - pool_info.share_price.iloc[0] * 1e7
-new_row["hpr"] = pool_info.share_price.iloc[-1] / pool_info.share_price.iloc[0] - 1
-new_row["token_type"] = "WETH"
-current_wallet = pd.concat([current_wallet, new_row.to_frame().T], ignore_index=True)
+def new_row(user, position, pnl, hpr = None):  # pylint: disable=redefined-outer-name
+    _new_row = current_wallet.iloc[len(current_wallet) - 1].copy()
+    _new_row["username"], _new_row["position"], _new_row["pnl"], _new_row["token_type"] = user, position, pnl, "WETH"
+    _new_row["hpr"] = hpr if hpr is not None else _new_row["pnl"] / (_new_row["position"] - _new_row["pnl"])
+    return _new_row.to_frame().T
+governance_row = new_row("governance", governance_fees, governance_fees, np.inf)
+total_row = new_row("total", float(current_wallet["position"].values.sum()), current_wallet.loc[current_wallet.token_type.values == "WETH", ["pnl"]].values.sum())
+share_price_row = new_row("share price", pool_info.share_price.iloc[-1] * 1e7, pool_info.share_price.iloc[-1] * 1e7 - pool_info.share_price.iloc[0] * 1e7)
+current_wallet = pd.concat([current_wallet, governance_row, total_row, share_price_row], ignore_index=True)
 
 # re-index
 non_weth_index = (current_wallet.token_type != "WETH") & (current_wallet.position > float(MINIMUM_TRANSACTION_AMOUNT))
@@ -422,13 +389,6 @@ weth_index = current_wallet.token_type == "WETH"
 # convert to float
 current_wallet.position = current_wallet.position.astype(float)
 current_wallet.pnl = current_wallet.pnl.astype(float)
-
-# time passed
-time_passed_days = (pool_info.timestamp.iloc[-1] - pool_info.timestamp.iloc[0]).total_seconds() / 60 / 60 / 24
-print(f"time passed = {time_passed_days:.2f} days")
-apr_factor = 365 / time_passed_days
-print(f"to scale APR from HPR we multiply by {apr_factor:,.0f} (365/{time_passed_days:.2f})")
-print(f"share price went from {pool_info.share_price.iloc[0]:.4f} to {pool_info.share_price.iloc[-1]:.4f}")
 # add APR
 current_wallet.loc[:, ["apr"]] = current_wallet.loc[:, ["hpr"]].values * apr_factor
 
@@ -450,7 +410,7 @@ else:
     pool_info.to_parquet("pool_info.parquet", index=False)
 # display final results
 if non_weth_index.sum() > 0:
-    print("material non-WETH positions:")
+    print("\nmaterial non-WETH positions:")
     if RUNNING_INTERACTIVE:
         display(results1.style.hide(axis="index"))
     else:
@@ -459,21 +419,10 @@ else:
     print("no material non-WETH positions")
 print("WETH positions:")
 if RUNNING_INTERACTIVE:
-    display(
-        results2.style.format(
-            subset=[
-                col
-                for col in results2.columns
-                if results2.dtypes[col] == "float64" and col not in ["hpr", "apr"]
-            ],
-            formatter="{:" + exp.float_fmt + "}",
-        )
-        .hide(axis="index")
-        .format(
-            subset=["hpr", "apr"],
-            formatter="{:.2%}",
-        )
-    )
+    display(results2.style.format(
+        subset=[col for col in results2.columns if results2.dtypes[col] == "float64" and col not in ["hpr", "apr"]],
+        formatter="{:" + exp.float_fmt + "}",
+    ).hide(axis="index").format(subset=["hpr", "apr"],formatter="{:.2%}",))
 else:
     print(results2)
 
