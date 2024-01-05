@@ -94,7 +94,6 @@ class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-
     term_seconds: int = 0
     variable_rate: FixedPoint = FixedPoint(0.035)
     calc_pnl: bool = True
-    use_duck_db: bool = False
     use_average_spend: bool = False
 
     def calculate_values(self):
@@ -140,7 +139,7 @@ rng = np.random.default_rng(seed=int(exp.randseed))
 # %%
 # set up chain
 print(f"Experiment ID {exp.chain_port-10_000}")
-chain = LocalChain(LocalChain.Config(db_port=exp.db_port, chain_port=exp.chain_port, use_duck_db=exp.use_duck_db))
+chain = LocalChain(LocalChain.Config(db_port=exp.db_port, chain_port=exp.chain_port))
 
 # %%
 # Parameters for pool initialization. If empty, defaults to default values, allows for custom values if needed
@@ -154,7 +153,6 @@ config = InteractiveHyperdrive.Config(
     flat_fee=exp.flat_fee,
     governance_fee=exp.governance_fee,
     calc_pnl=exp.calc_pnl,
-    use_duck_db=exp.use_duck_db,
 )
 MINIMUM_TRANSACTION_AMOUNT = config.minimum_transaction_amount
 interactive_hyperdrive = InteractiveHyperdrive(chain, config)
