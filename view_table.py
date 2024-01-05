@@ -32,20 +32,3 @@ display(
         formatter="{:.2%}",
     )
 )
-
-# %%
-pool_info = pd.read_parquet(experiment_path / "pool_info.parquet")
-
-# %%
-pool_info.plot(
-    x="timestamp",
-    y="fixed_rate",
-)
-plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
-# get major ticks every 0.5%
-plt.gca().yaxis.set_major_locator(ticker.MultipleLocator(0.005))
-# plot horizontal line at 3.5%
-plt.axhline(0.035, color="red")
-plt.show()
-
-# %%
