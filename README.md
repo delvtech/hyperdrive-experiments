@@ -23,6 +23,6 @@ source .venv/bin/activate
 
 ```bash
 python -m pip install --upgrade pip
-python -m pip install "agent0[with-dependencies] @ git+https://git@github.com/delvtech/agent0.git@v0.11.0#subdirectory=lib/agent0"
-python -m pip install --upgrade -r https://raw.githubusercontent.com/delvtech/agent0/v0.11.0/requirements-dev.txt
+python -m pip install -r requirements.txt
+python -m pip install --upgrade -r https://raw.githubusercontent.com/delvtech/agent0/main/requirements-dev.txt
 ```
