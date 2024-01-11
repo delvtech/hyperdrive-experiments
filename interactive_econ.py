@@ -25,6 +25,7 @@ from matplotlib import pyplot as plt  # pylint: disable=import-error,no-name-in-
 
 import wandb
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
+from agent0.hyperdrive.interactive.interactive_hyperdrive_agent import InteractiveHyperdriveAgent
 from agent0.hyperdrive.policies import Zoo
 
 # pylint: disable=bare-except
@@ -37,6 +38,9 @@ from agent0.hyperdrive.policies import Zoo
 # pylint: disable=line-too-long
 # let me use magic numbers
 # ruff: noqa: PLR2004
+# too many branches
+# ruff: noqa: PLR0912
+# pylint: disable=redefined-outer-name
 
 
 # %%
@@ -80,13 +84,13 @@ class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-
     db_port: int = 5_433
     chain_port: int = 10_000
     daily_volume_percentage_of_liquidity: float = 0.01  # 1%
-    term_days: int = 1
+    term_days: int = 10
     float_fmt: str = ",.0f"
     display_cols: list[str] = field(default_factory=lambda: cols + ["base_token_type", "maturity_time"])
     display_cols_with_hpr: list[str] = field(default_factory=lambda: cols + ["hpr", "apr"])
     amount_of_liquidity: int = 10_000_000
     max_trades_per_day: int = 10
-    fixed_rate: FixedPoint = FixedPoint(0.02)  # 5.0%
+    fixed_rate: FixedPoint = FixedPoint(0.035)  # 5.0%
     curve_fee: FixedPoint = FixedPoint("0.01")  # 1%, 10% default
     flat_fee: FixedPoint = FixedPoint("0.0001")  # 1bps, 5bps default
     governance_fee: FixedPoint = FixedPoint("0.1")  # 10%, 15% default
@@ -151,7 +155,7 @@ config = InteractiveHyperdrive.Config(
     initial_variable_rate=exp.variable_rate,
     curve_fee=exp.curve_fee,
     flat_fee=exp.flat_fee,
-    governance_fee=exp.governance_fee,
+    governance_lp_fee=exp.governance_fee,
     calc_pnl=exp.calc_pnl,
 )
 MINIMUM_TRANSACTION_AMOUNT = config.minimum_transaction_amount
@@ -161,21 +165,27 @@ interactive_hyperdrive = InteractiveHyperdrive(chain, config)
 # set up agents
 larry = interactive_hyperdrive.init_agent(base=FixedPoint(exp.amount_of_liquidity), name="larry")
 rob = interactive_hyperdrive.init_agent(base=FixedPoint(exp.amount_of_liquidity), name="rob")
-andy = interactive_hyperdrive.init_agent(base=FixedPoint(exp.amount_of_liquidity*100),name="andy",
-    policy=Zoo.lp_and_arb,policy_config=Zoo.lp_and_arb.Config(lp_portion=FixedPoint(0),high_fixed_rate_thresh=FixedPoint(0),low_fixed_rate_thresh=FixedPoint(0)))
+andy_base = FixedPoint(exp.amount_of_liquidity*100)
+andy_config = Zoo.lp_and_arb.Config(
+    lp_portion=FixedPoint(0),
+    high_fixed_rate_thresh=FixedPoint(0),
+    low_fixed_rate_thresh=FixedPoint(0),
+    minimum_trade_amount=MINIMUM_TRANSACTION_AMOUNT
+)
+andy = interactive_hyperdrive.init_agent(base=andy_base,name="andy",policy=Zoo.lp_and_arb,policy_config=andy_config)
 print("=== STARTING WETH BALANCES ===")
 starting_base = {}
 for agent in interactive_hyperdrive._pool_agents:  # pylint: disable=protected-access
     starting_base[agent.name] = agent.wallet.balance.amount
 for k,v in starting_base.items():
-    print(f"{k}: {v}")
+    print(f"{k:6}: {float(v):13,.0f}")
 larry.add_liquidity(base=FixedPoint(exp.amount_of_liquidity))  # 10 million
 
 # %%
-# Arbitrage Andy does one trade 📈
-# event_list = andy.execute_policy_action()
-# for event in event_list:
-#     print(event)
+# At START Arbitrage Andy does one trade 📈
+event_list = andy.execute_policy_action()
+for event in event_list:
+    print(event)
 
 # %%
 # Random Rob does a buncha trades 🤪
@@ -199,10 +209,7 @@ def get_max(
     max_long_shares = _interactive_hyperdrive.hyperdrive_interface.calc_shares_in_given_bonds_out_down(max_long_base)
     max_long_bonds = max_long_shares * _share_price
     max_short_bonds = FixedPoint(0)
-    try:  # sourcery skip: do-not-use-bare-except
-        max_short_bonds = _interactive_hyperdrive.hyperdrive_interface.calc_max_short(budget=_current_base)
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        print("Error calculating max short bonds: %s. ", exc)
+    max_short_bonds = _interactive_hyperdrive.hyperdrive_interface.calc_max_short(budget=_current_base)
     max_short_shares = _interactive_hyperdrive.hyperdrive_interface.calc_shares_out_given_bonds_in_down(max_short_bonds)
     max_short_base = max_short_shares * _share_price
     return GetMax(
@@ -210,9 +217,66 @@ def get_max(
         Max(max_short_base, max_short_bonds),
     )
 
+def trade_in_direction(
+    go_long: bool,
+    agent: InteractiveHyperdriveAgent,
+    _interactive_hyperdrive: InteractiveHyperdrive,
+    _share_price: FixedPoint,
+    _amount_to_trade_base: FixedPoint,
+):
+    max = None
+    event = None
+    # execute the trade in the chosen direction
+    if go_long:
+        if len(agent.wallet.shorts) > 0:  # check if we have shorts, and close them if we do
+            for maturity_time, short in agent.wallet.shorts.copy().items():
+                max = get_max(_interactive_hyperdrive, _share_price, agent.wallet.balance.amount)
+                amount_to_trade_bonds = (
+                    _interactive_hyperdrive.hyperdrive_interface.calc_bonds_out_given_shares_in_down(
+                        _amount_to_trade_base / _share_price, pool_state
+                    )
+                )
+                trade_size_bonds = min(amount_to_trade_bonds, short.balance, max.long.bonds)
+                if trade_size_bonds > MINIMUM_TRANSACTION_AMOUNT:
+                    event = agent.close_short(maturity_time, trade_size_bonds)
+                    _amount_to_trade_base -= event.base_amount
+                if _amount_to_trade_base <= 0:
+                    break  # stop looping across shorts if we've traded enough
+        if _amount_to_trade_base > 0:
+            max = get_max(_interactive_hyperdrive, _share_price, agent.wallet.balance.amount)
+            trade_size_base = min(_amount_to_trade_base, max.long.base)
+            if trade_size_base > MINIMUM_TRANSACTION_AMOUNT:
+                event = agent.open_long(trade_size_base)
+                _amount_to_trade_base -= event.base_amount
+    else:
+        if len(agent.wallet.longs) > 0:  # check if we have longs, and close them if we do
+            for maturity_time, long in agent.wallet.longs.copy().items():
+                max = get_max(_interactive_hyperdrive, _share_price, agent.wallet.balance.amount)
+                amount_to_trade_bonds = (
+                    _interactive_hyperdrive.hyperdrive_interface.calc_bonds_out_given_shares_in_down(
+                        _amount_to_trade_base / _share_price, pool_state
+                    )
+                )
+                trade_size_bonds = min(amount_to_trade_bonds, long.balance, max.short.bonds)
+                if trade_size_bonds > MINIMUM_TRANSACTION_AMOUNT:
+                    event = agent.close_long(maturity_time, trade_size_bonds)
+                    _amount_to_trade_base -= event.base_amount
+                if _amount_to_trade_base <= 0:
+                    break  # stop looping across longs if we've traded enough
+        if _amount_to_trade_base > 0:
+            max = get_max(_interactive_hyperdrive, _share_price, agent.wallet.balance.amount)
+            amount_to_trade_bonds = _interactive_hyperdrive.hyperdrive_interface.calc_bonds_out_given_shares_in_down(
+                _amount_to_trade_base / share_price, pool_state
+            )
+            trade_size_bonds = min(amount_to_trade_bonds, max.short.bonds)
+            if trade_size_bonds > MINIMUM_TRANSACTION_AMOUNT:
+                event = agent.open_short(trade_size_bonds)
+                _amount_to_trade_base -= event.base_amount
+    return _amount_to_trade_base
 
 # sourcery skip: avoid-builtin-shadow, do-not-use-bare-except, invert-any-all,
 # remove-unnecessary-else, swap-if-else-branches
+fixed_rates = []
 start_time = time.time()
 for day in range(exp.term_days):
     amount_to_trade_base = FixedPoint(exp.amount_of_liquidity * exp.daily_volume_percentage_of_liquidity)
@@ -220,54 +284,18 @@ for day in range(exp.term_days):
     while amount_to_trade_base > MINIMUM_TRANSACTION_AMOUNT:
         pool_state = interactive_hyperdrive.hyperdrive_interface.current_pool_state
         share_price = pool_state.pool_info.share_price
-        max = None
-        wallet = rob.wallet
-        event = None
-        if rng.random() < 0.5:  # go long 50% of the time
-            if len(wallet.shorts) > 0:  # check if we have shorts, and close them if we do
-                for maturity_time, short in wallet.shorts.copy().items():
-                    max = get_max(interactive_hyperdrive, share_price, rob.wallet.balance.amount)
-                    amount_to_trade_bonds = (
-                        interactive_hyperdrive.hyperdrive_interface.calc_bonds_out_given_shares_in_down(
-                            amount_to_trade_base / share_price, pool_state
-                        )
-                    )
-                    trade_size_bonds = min(amount_to_trade_bonds, short.balance, max.long.bonds)
-                    if trade_size_bonds > MINIMUM_TRANSACTION_AMOUNT:
-                        event = rob.close_short(maturity_time, trade_size_bonds)
-                        amount_to_trade_base -= event.base_amount
-                    if amount_to_trade_base <= 0:
-                        break  # stop looping across shorts if we've traded enough
-            if amount_to_trade_base > 0:
-                max = get_max(interactive_hyperdrive, share_price, rob.wallet.balance.amount)
-                trade_size_base = min(amount_to_trade_base, max.long.base)
-                if trade_size_base > MINIMUM_TRANSACTION_AMOUNT:
-                    event = rob.open_long(trade_size_base)
-                    amount_to_trade_base -= event.base_amount
-        else:  # go short 50% of the time
-            if len(wallet.longs) > 0:  # check if we have longs, and close them if we do
-                for maturity_time, long in wallet.longs.copy().items():
-                    max = get_max(interactive_hyperdrive, share_price, rob.wallet.balance.amount)
-                    amount_to_trade_bonds = (
-                        interactive_hyperdrive.hyperdrive_interface.calc_bonds_out_given_shares_in_down(
-                            amount_to_trade_base / share_price, pool_state
-                        )
-                    )
-                    trade_size_bonds = min(amount_to_trade_bonds, long.balance, max.short.bonds)
-                    if trade_size_bonds > MINIMUM_TRANSACTION_AMOUNT:
-                        event = rob.close_long(maturity_time, trade_size_bonds)
-                        amount_to_trade_base -= event.base_amount
-                    if amount_to_trade_base <= 0:
-                        break  # stop looping across longs if we've traded enough
-            if amount_to_trade_base > 0:
-                max = get_max(interactive_hyperdrive, share_price, rob.wallet.balance.amount)
-                amount_to_trade_bonds = interactive_hyperdrive.hyperdrive_interface.calc_bonds_out_given_shares_in_down(
-                    amount_to_trade_base / share_price, pool_state
-                )
-                trade_size_bonds = min(amount_to_trade_bonds, max.short.bonds)
-                if trade_size_bonds > MINIMUM_TRANSACTION_AMOUNT:
-                    event = rob.open_short(trade_size_bonds)
-                    amount_to_trade_base -= event.base_amount
+
+        # decide direction to trade
+        go_long = rng.random() < 0.5  # go long 50% of the time
+        # X% of the time let the arbitrageur act
+        arbitrageur_chance = 0.5
+        if rng.random() < arbitrageur_chance:
+            # go_long = interactive_hyperdrive.hyperdrive_interface.calc_fixed_rate() > interactive_hyperdrive.hyperdrive_interface.get_variable_rate()
+            for event in andy.execute_policy_action():
+                amount_to_trade_base -= event.base_amount
+        else:
+            amount_to_trade_base = trade_in_direction(go_long, rob, interactive_hyperdrive, share_price, amount_to_trade_base)
+        fixed_rates.append(interactive_hyperdrive.hyperdrive_interface.calc_fixed_rate())
         print(f"day {day} secs/day={(time.time() - start_time)/(day+1):,.1f}", end="\r", flush=True)
         trades_today += 1
         if RUNNING_WANDB:
@@ -276,16 +304,16 @@ for day in range(exp.term_days):
             break  # end the day if we've traded enough
     chain.advance_time(datetime.timedelta(days=1), create_checkpoints=False)
 # make sure a year has passed
-if day < 364:  # days are 0-indexed
-    chain.advance_time(datetime.timedelta(days=364 - day), create_checkpoints=True)
+# if day < 364:  # days are 0-indexed
+#     chain.advance_time(datetime.timedelta(days=364 - day), create_checkpoints=True)
 print(f"experiment finished in {(time.time() - start_time):,.2f} seconds")
 
 # %%
-# temporary inspect
-# pool_state = interactive_hyperdrive.get_pool_state()
-# pool_state.to_parquet("/nvme/experiments/pool_state.parquet")
-# effective_shares = pool_state.share_reserves.iloc[-1] + pool_state.share_adjustment.iloc[-1]
-# print(f"bonds={pool_state.bond_reserves.iloc[-1]:,.0f} effective_shares={effective_shares:,.0f} rate={pool_state.fixed_rate.iloc[-1]:7.2%}")
+# inspect pool state
+pool_state = interactive_hyperdrive.get_pool_state()
+pool_state.to_parquet("/nvme/experiments/pool_state.parquet")
+effective_shares = pool_state.share_reserves.iloc[-1] + pool_state.share_adjustment.iloc[-1]
+print(f"pool reserves are: bonds={pool_state.bond_reserves.iloc[-1]:,.0f} effective_shares={effective_shares:,.0f} rate={pool_state.fixed_rate.iloc[-1]:7.2%}")
 
 # %%
 # view wallets before closing
@@ -307,14 +335,21 @@ else:
     print(current_wallet)
 
 # %%
-# finalize trading
+# %%
+# Liquidate Rob's trades, at wherever the rate is
 events = rob.liquidate()
 for event in events:
     print(event)
-events = andy.liquidate()
-for event in events:
+# Before liquidation Arbitrage Andy does one trade 📈
+event_list = andy.execute_policy_action()
+for event in event_list:
     print(event)
-larry.remove_liquidity(larry.wallet.lp_tokens)
+# Now rate is where we want it to be
+if larry.wallet.lp_tokens > FixedPoint(0):
+    larry.remove_liquidity(larry.wallet.lp_tokens)
+# events = andy.liquidate()
+# for event in events:
+#     print(event)
 
 # %%
 # conclude
@@ -425,6 +460,7 @@ else:
     print(results2)
 
 # %%
+pool_info = interactive_hyperdrive.get_pool_state()
 # plot rates
 if RUNNING_INTERACTIVE:
     from matplotlib import ticker
@@ -436,7 +472,28 @@ if RUNNING_INTERACTIVE:
     plt.show()
 
 # %%
+# import time
+# start_time = time.time()
+# from chainsync.db.hyperdrive.interface import get_wallet_pnl
+# session = interactive_hyperdrive.db_session
+
+# wallet_pnl = get_wallet_pnl(session=session)
+# print(f"done in {time.time() - start_time:.2f} seconds")
+
+# %%
+# calc wallet pnl
+# start_time = time.time()
+# from chainsync.analysis.calc_pnl import calc_closeout_pnl
+# current_wallet = deepcopy(interactive_hyperdrive.get_current_wallet())
+# pnl = calc_closeout_pnl(
+#     current_wallet=current_wallet,
+#     hyperdrive_contract=interactive_hyperdrive.hyperdrive_interface.hyperdrive_contract,
+#     hyperdrive_interface=interactive_hyperdrive.hyperdrive_interface,
+# )
+
+# %%
 # clear resources
-chain.cleanup()
+if not RUNNING_INTERACTIVE:
+    chain.cleanup()
 
 # %%
