@@ -1,7 +1,4 @@
 #!/bin/bash
-# remove hung containers
-# ./clean_docker.sh
-
 # Base directory for experiments
 EXPERIMENTS_DIR="./experiments"
 
@@ -100,4 +97,11 @@ echo "CURVE_FEE=$CURVE_FEE"
 
 echo "ID $NEXT_EXPERIMENT_ID: Rate = $FIXED_RATE, Volume = $DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY, Fee = $CURVE_FEE"
 # Run the experiment script within the experiment directory
-(cd "$EXPERIMENT_DIR" && source parameters.env && echo "Experiment ID: $NEXT_EXPERIMENT_ID" && python ../../interactive_econ.py)
+# Set the path to the Python interpreter
+PYTHON_BIN="python"
+if [ -d ".venv" ]; then
+    PYTHON_BIN="../../.venv/bin/python"
+fi
+
+# Run the experiment script within the experiment directory
+(cd "$EXPERIMENT_DIR" && source parameters.env && echo "Experiment ID: $NEXT_EXPERIMENT_ID" && $PYTHON_BIN ../../interactive_econ.py)

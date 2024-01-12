@@ -2,3 +2,4 @@
 --find-links=".venv/src/agent0/packages/hyperdrivepy"
 hyperdrivepy
 rollbar
+wandb
