@@ -10,6 +10,7 @@ At the end, we close out all positions, and evaluate results based off the WETH 
 """
 
 import datetime
+import logging
 import os
 import sys
 import time
@@ -65,7 +66,8 @@ if RUNNING_INTERACTIVE := running_interactive():
 
     print("Running in interactive mode.")
 else:  # being run from the terminal or something similar
-    display = print  # pylint: disable=redefined-builtin,unused-import
+    display = print  # pylint: disable=redefined-builtin
+    logging.basicConfig(level=logging.ERROR)
     print("Running in non-interactive mode.")
 
 if RUNNING_WANDB := running_wandb():
@@ -206,9 +208,7 @@ def get_max(
         A NamedTuple containing the max long in base, max long in bonds, max short in bonds, and max short in base.
     """
     max_long_base = _interactive_hyperdrive.hyperdrive_interface.calc_max_long(budget=_current_base)
-    max_long_shares = _interactive_hyperdrive.hyperdrive_interface.calc_shares_in_given_bonds_out_down(max_long_base)
-    max_long_bonds = max_long_shares * _share_price
-    max_short_bonds = FixedPoint(0)
+    max_long_bonds = _interactive_hyperdrive.hyperdrive_interface.calc_bonds_out_given_shares_in_down(max_long_base / _share_price)
     max_short_bonds = _interactive_hyperdrive.hyperdrive_interface.calc_max_short(budget=_current_base)
     max_short_shares = _interactive_hyperdrive.hyperdrive_interface.calc_shares_out_given_bonds_in_down(max_short_bonds)
     max_short_base = max_short_shares * _share_price

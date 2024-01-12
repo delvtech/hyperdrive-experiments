@@ -13,16 +13,18 @@ from matplotlib import pyplot as plt
 from matplotlib import ticker
 from statsmodels.tools.tools import add_constant
 
+import darkmode_orange
+
 FLOAT_FMT = ",.0f"
 short_variable_names = {
-    "CURVE_FEE": "fee",
+    "CURVE_FEE": "curve fee",
     "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY": "volume",
     "FIXED_RATE": "rate"
 }
 
 # %%
 # do shit
-EXPERIMENT_FOLDER = Path("results/exp_five")
+EXPERIMENT_FOLDER = Path("results/exp_two")
 DELETE_UNFINISHED_EXPERIMENTS = False
 PARQUET_FILES = ["agg_results1.parquet", "agg_results2.parquet", "rate_paths.parquet"]
 DELETE_PREVIOUS_PARQUET_FILES = True
@@ -106,9 +108,9 @@ assert grpd.min().values[0] == grpd.max().values[0]
 
 # IDs are continuous
 missing_ids = []
-for id in range(df2.experiment.max() + 1):
-    if id not in df2.experiment:
-        missing_ids.append(id)
+for experiment_id in range(df2.experiment.max() + 1):
+    if experiment_id not in df2.experiment:
+        missing_ids.append(experiment_id)
 if len(missing_ids) > 0:
     print(f"missing experiment IDS: {', '.join(map(str, missing_ids))}")
 
@@ -139,7 +141,7 @@ df2.loc[:, cols].describe()
 idx = df2.username == "larry"
 last_share_price = (df2.username == "share price") & (df2.experiment == df2.experiment.max())
 df2["CURVE_FEE_X_DAILY_VOLUME"] = df2.CURVE_FEE * df2.DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY * 1
-df2["FIXED_V_VARIABLE"] = (df2.FIXED_RATE - 0.035)
+df2["FIXED_V_VARIABLE"] = df2.FIXED_RATE - 0.035
 df2["ABS_FIXED_V_VARIABLE"] = abs(df2.FIXED_RATE - 0.035)
 
 # %%
@@ -298,23 +300,25 @@ display(matrix_formatted.style.hide(axis="index"))
 
 # %%
 # plot APR against most_variable
-df2temp = copy(df2.loc[idx, :]).sort_values(by=most_variable)
-plt.scatter(df2temp.loc[:, most_variable],df2temp.loc[:, "apr"])
+plot_data = copy(df2.loc[idx, :]).sort_values(by=most_variable)
+plt.scatter(plot_data.loc[:, most_variable],plot_data.loc[:, "apr"], label='LP return')
 plt.xlabel(short_variable_names[most_variable])
-plt.ylabel("apr")
+plt.ylabel("Return (APR)")
 plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
 ylim = plt.gca().get_ylim()
 ylim = np.floor(ylim[0] * 1000) / 1000, np.ceil(ylim[1] * 1000) / 1000
 plt.gca().set_ylim(ylim)
-yticks = np.arange(ylim[0], ylim[1]+0.001, 0.001)  # 0.1% increment
+yticks = np.arange(min(ylim[0],0.034), ylim[1]+0.001, 0.001)  # 0.1% increment
 plt.gca().set_yticks(yticks)
-m, b = np.polyfit(df2temp.loc[:, most_variable], df2temp.loc[:, "apr"], 1)
-y_fit = m * df2temp.loc[:, most_variable] + b
-plt.plot(df2temp.loc[:, most_variable], y_fit, color='red')
-plt.show()
-
-# %%
-plt.gca().set_yticks(np.arange(yticks[0].get_loc(), yticks[-1].get_loc(), 0.001))
+x_vars = plot_data.loc[:, most_variable].values
+m, b = np.polyfit(x_vars, plot_data.loc[:, "apr"], 1)
+x_vars_with_zero = np.append(x_vars,0)
+y_fit = m * x_vars_with_zero + b
+plt.plot(x_vars_with_zero, y_fit, color='orange')
+# plot horizontal line
+plt.axhline(0.035, color='red', label="Vault variable return", alpha=1, linestyle='--')
+plt.title(f"LP Profitability vs. {short_variable_names[most_variable]}")
+plt.legend()
 plt.show()
 
 # %%

@@ -101,9 +101,9 @@ def monitor(repeat, interval_seconds = 1, matrix_file='run_matrix.txt', exp_fold
                 logstr = f" ({experiment_duration_till_now//60:02,.0f}:{experiment_duration_till_now%60:02,.0f} ago)"\
                     + f"\nRuns: running={started_runs-finished_runs:3.0f}, "\
                     + f"finished={finished_runs:3.0f}, "\
-                    + f"total={experiment_length:3.0f}"
+                    + f"permutations={experiment_length:3.0f}"
                 logstr += f", {experiment_duration/finished_runs:5.1f}s per run" if finished_runs > 0 else ""
-                print(logstr, end='\r', flush=True)
+                print(logstr)
         if debug:
             print(f"monitor took {time.time() - start_monitor:,.3f} seconds", end='\r', flush=True)
         if not repeat:
