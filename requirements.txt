@@ -3,3 +3,4 @@
 hyperdrivepy
 statsmodels
 rollbar
+wandb
