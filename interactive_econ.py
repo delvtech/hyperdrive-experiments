@@ -350,7 +350,7 @@ chain.save_snapshot()
 # %%
 # inspect pool state
 pool_state = interactive_hyperdrive.get_pool_state()
-pool_state.to_parquet("/nvme/experiments/pool_state.parquet")
+pool_state.to_parquet("pool_state.parquet")
 effective_shares = pool_state.share_reserves.iloc[-1] + pool_state.share_adjustment.iloc[-1]
 print(f"pool reserves are: bonds={pool_state.bond_reserves.iloc[-1]:,.0f} effective_shares={effective_shares:,.0f} rate={pool_state.fixed_rate.iloc[-1]:7.2%}")
 
@@ -466,7 +466,7 @@ not_inf = current_wallet.hpr != np.inf
 current_wallet.position = current_wallet.position.astype(float)
 current_wallet.pnl = current_wallet.pnl.astype(float)
 # add APR
-current_wallet["apr"] = np.nan
+current_wallet["apr"] = Decimal(np.nan)
 current_wallet.loc[weth_index & not_inf, ["apr"]] = current_wallet.loc[weth_index & not_inf, ["hpr"]].values * Decimal(apr_factor)
 
 results1 = current_wallet.loc[non_weth_index, exp.display_cols]
