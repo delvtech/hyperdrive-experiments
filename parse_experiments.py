@@ -24,8 +24,7 @@ short_variable_names = {
 
 # %%
 # do shit
-EXPERIMENT_FOLDER = Path("results/exp_two")
-DELETE_UNFINISHED_EXPERIMENTS = False
+EXPERIMENT_FOLDER = Path("runs/")
 PARQUET_FILES = ["agg_results1.parquet", "agg_results2.parquet", "rate_paths.parquet"]
 DELETE_PREVIOUS_PARQUET_FILES = True
 
@@ -36,11 +35,14 @@ if DELETE_PREVIOUS_PARQUET_FILES:
 df1 = pd.read_parquet("agg_results1.parquet") if Path("agg_results1.parquet").exists() else pd.DataFrame()
 df2 = pd.read_parquet("agg_results2.parquet") if Path("agg_results2.parquet").exists() else pd.DataFrame()
 rate_paths = pd.read_parquet("rate_paths.parquet") if Path("rate_paths.parquet").exists() else pd.DataFrame()
+incomplete_runs = []
 # for each folder in the experiments folder
 for folder in EXPERIMENT_FOLDER.iterdir():
     if folder.is_dir():
-        # extract the experiment id: experiments/exp_0
-        experiment_id = int(folder.name.split("_")[1])
+        if "exp" in folder.name:
+            experiment_id = int(folder.name.split("_")[1])
+        else:
+            experiment_id = int(folder.name)
         print(f"Experiment ID {experiment_id}")
         # check if parameters.env exists and it has a non-zero size
         parameters = folder / "parameters.env"
@@ -50,7 +52,7 @@ for folder in EXPERIMENT_FOLDER.iterdir():
         if df1.shape[0] > 0 and experiment_id in df1["experiment"].values:
             print(f"Experiment ID {experiment_id} already in agg_results1.parquet")
         else:
-            # check if agg_results1.parquet exists and it has a non-zero size
+            # check if results1.parquet exists and it has a non-zero size
             file1 = folder / "results1.parquet"
             if file1.exists() and file1.stat().st_size > 0:
                 # load it
@@ -62,15 +64,13 @@ for folder in EXPERIMENT_FOLDER.iterdir():
                     df_new[param] = value
                 # append it
                 df1 = pd.concat([df1, df_new], ignore_index=True)
-            elif DELETE_UNFINISHED_EXPERIMENTS:
-                # delete the folder
-                print(f"deleting folder {folder}")
-                parameters.unlink()
-                folder.rmdir()
+            else:
+                incomplete_runs.append(experiment_id)
+                print(f"Experiment ID {experiment_id} has no results1.parquet")
         if df2.shape[0] > 0 and experiment_id in df2["experiment"].values:
             print(f"Experiment ID {experiment_id} already in agg_results2.parquet")
         else:
-            # check if agg_results2.parquet exists and it has a non-zero size
+            # check if results2.parquet exists and it has a non-zero size
             file2 = folder / "results2.parquet"
             if file2.exists() and file2.stat().st_size > 0:
                 # load it
@@ -82,10 +82,13 @@ for folder in EXPERIMENT_FOLDER.iterdir():
                     df_new[param] = value
                 # append it
                 df2 = pd.concat([df2, df_new], ignore_index=True)
+            else:
+                incomplete_runs.append(experiment_id)
+                print(f"Experiment ID {experiment_id} has no results2.parquet")
         if rate_paths.shape[0] > 0 and experiment_id in rate_paths["experiment"].values:
             print(f"Experiment ID {experiment_id} already in rate_paths.parquet")
         else:
-            # check if rate_paths.parquet exists and it has a non-zero size
+            # check if pool_info.parquet exists and it has a non-zero size
             file3 = folder / "pool_info.parquet"
             if file3.exists() and file3.stat().st_size > 0:
                 # load it
@@ -95,10 +98,15 @@ for folder in EXPERIMENT_FOLDER.iterdir():
                 df_new["experiment"] = experiment_id
                 # append it
                 rate_paths = pd.concat([rate_paths, df_new], ignore_index=True)
+            else:
+                incomplete_runs.append(experiment_id)
+                print(f"Experiment ID {experiment_id} has no pool_info.parquet")
 if "AGENT0_INSTALL_FOLDER" in df2.columns:
     df2 = df2.drop(columns=["AGENT0_INSTALL_FOLDER"])
 df1.to_parquet("agg_results1.parquet")
 df2.to_parquet("agg_results2.parquet")
+incomplete_runs = list(set(incomplete_runs))
+print(f"incomplete runs: {','.join(map(str, incomplete_runs))}")
 
 # %%
 # ensure data looks correct
@@ -115,22 +123,7 @@ if len(missing_ids) > 0:
     print(f"missing experiment IDS: {', '.join(map(str, missing_ids))}")
 
 # %%
-# update values
-for experiment in df2.experiment.unique():
-    idx1 = df1.experiment == experiment
-    idx2 = df2.experiment == experiment
-    larry_lp = df1.loc[idx1 & (df1.username == "larry"), "position"]
-    if larry_lp.shape[0] > 0:
-        lp_share_price = df2.loc[idx2 & (df2.username == "share price"), "position"].values[0]/10_000_000
-        # print(f"{lp_share_price=}")
-        if df2.loc[idx2 & (df2.username == "larry"), "position"].values[0] == 0:
-            df2.loc[idx2 & (df2.username == "larry"), "position"] = larry_lp * lp_share_price
-        df2.loc[idx2 & (df2.username == "larry"), "pnl"] = df2.loc[idx2 & (df2.username == "larry"), "position"] - 10_000_000
-        df2.loc[idx2 & (df2.username == "larry"), "hpr"] = df2.loc[idx2 & (df2.username == "larry"), "pnl"] / df2.loc[idx2 & (df2.username == "larry"), "position"]
-        df2.loc[idx2 & (df2.username == "larry"), "apr"] = df2.loc[idx2 & (df2.username == "larry"), "pnl"] / df2.loc[idx2 & (df2.username == "larry"), "position"]
-        # display(df1.loc[idx1 & (df1.username == "larry"), :])
-
-# %%
+# manipulate columns
 cols = df2.columns
 # keep only columns after "experiment"
 cols = cols[cols.get_loc("experiment") + 1 :]
@@ -186,8 +179,6 @@ display(
             "AMOUNT_OF_LIQUIDITY",
             "GOVERNANCE_FEE",
             "RANDSEED",
-            "DB_PORT",
-            "CHAIN_PORT",
             "FLAT_FEE",
         ],
     )
@@ -255,18 +246,22 @@ if matrix_count.max().max() > 1:
 
 # %%
 # parse variables
-variables_to_check_for_variability = ["CURVE_FEE", "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"]
+variables_to_check_for_variability = ["CURVE_FEE", "FLAT_FEE", "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"]
 most_variable = ''
 least_variable = ''
 for variable in variables_to_check_for_variability:
+    num_unique = df2[variable].nunique()
+    print(f"{variable} has {num_unique} unique values")
     if most_variable == '':
         most_variable = variable
     if least_variable == '':
         least_variable = variable
-    if df2[variable].nunique() > df2[most_variable].nunique():
+    if num_unique > df2[most_variable].nunique():
         most_variable = variable
-    if df2[variable].nunique() < df2[least_variable].nunique():
+    if num_unique < df2[least_variable].nunique():
         least_variable = variable
+print(f"most variable is {most_variable}")
+print(f"least variable is {least_variable}")
 
 # %%
 # little 1-d table
@@ -437,10 +432,11 @@ if len(bad_experiments) > 0:
     plt.show()
 
 # %%
-# inspect df2
+# inspect results of a specific experiment
 experiment = 0
+df1temp = df1.loc[df1["experiment"] == experiment]
+display(df1temp)
 df2temp = df2.loc[df2["experiment"] == experiment]
-# display(df2temp)
 display(
     df2temp.style.format(
         subset=[

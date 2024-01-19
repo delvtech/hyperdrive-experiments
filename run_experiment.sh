@@ -12,27 +12,11 @@ mkdir -p "$EXPERIMENTS_DIR"
 FIXED_RATES=(0.035)
 VOLUME_VALUES=(0.01 0.05 0.1)
 CURVE_FEES=(0.001 0.005 0.01)
+FLAT_FEES=(0.001 0.005 0.01)
 RUN_FOREVER=true
 
-# Create run matrix across all permutations
 total_permutations=$(( ${#FIXED_RATES[@]} * ${#VOLUME_VALUES[@]} * ${#CURVE_FEES[@]} ))
 echo "total_permutations: $total_permutations"
-# if run_matrix.txt doesn't exist
-if [ ! -f run_matrix.txt ]; then
-    for (( NEXT_EXPERIMENT_ID=0; NEXT_EXPERIMENT_ID<total_permutations; NEXT_EXPERIMENT_ID++ )); do
-        # Calculate indices for each array
-        rate_index=$(($NEXT_EXPERIMENT_ID / (${#VOLUME_VALUES[@]} * ${#CURVE_FEES[@]})))
-        volume_index=$((($NEXT_EXPERIMENT_ID / ${#CURVE_FEES[@]}) % ${#VOLUME_VALUES[@]}))
-        fee_index=$(($NEXT_EXPERIMENT_ID % ${#CURVE_FEES[@]}))
-
-        # Retrieve the values
-        selected_rate=${FIXED_RATES[$rate_index]}
-        selected_volume=${VOLUME_VALUES[$volume_index]}
-        selected_fee=${CURVE_FEES[$fee_index]}
-
-        echo "ID $NEXT_EXPERIMENT_ID: Rate = $selected_rate, Volume = $selected_volume, Fee = $selected_fee" >> run_matrix.txt
-    done
-fi
 
 # If there's an input param, run that experiment
 if [ -n "$1" ]; then

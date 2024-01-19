@@ -8,6 +8,7 @@ That trading activity is executed by a random agent named Rob.
 The liquidity is provided by an agent named Larry.
 At the end, we close out all positions, and evaluate results based off the WETH in their wallets.
 """
+from __future__ import annotations
 
 import datetime
 import logging
@@ -83,6 +84,7 @@ cols = ["block_number", "username", "position", "pnl"]
 
 @dataclass
 class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-class-docstring
+    experiment_id: int = 0
     db_port: int = 5_433
     chain_port: int = 10_000
     daily_volume_percentage_of_liquidity: float = 0.01  # 1%
@@ -99,44 +101,65 @@ class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-
     randseed: int = 0
     term_seconds: int = 0
     variable_rate: FixedPoint = FixedPoint(0.035)
-    calc_pnl: bool = True
+    calc_pnl: bool = False
     use_average_spend: bool = False
 
     def calculate_values(self):
         self.term_seconds: int = 60 * 60 * 24 * self.term_days
 
 
-def safe_cast(_type: type, _value: str, _debug: bool = False):
-    if _debug:
+def safe_cast(_type: type, _value: str, debug: bool = False):
+    if debug:
         print(f"trying to cast {_value} to {_type}")
+        print(f"_type is {type(_type)} and _value is {type(_value)}")
     return_value = _value
-    if _type == int:
+    if debug:
+        print(f"_type == int: {_type == 'int'}")
+    if _type == "int":
         return_value = int(_value)
-    if _type == float:
+    if debug:
+        print(f"_type == float: {_type == 'float'}")
+    if _type == "float":
         return_value = float(_value)
-    if _type == bool:
+    if debug:
+        print(f"_type == bool: {_type == 'bool'}")
+    if _type == "bool":
         return_value = _value.lower() in {"true", "1", "yes"}
-    if _type == FixedPoint:
+    if debug:
+        print(f"_type == FixedPoint: {_type == 'FixedPoint'}")
+    if _type == "FixedPoint":
         return_value = FixedPoint(_value)
-    if _debug:
-        print(f"  result: {_value} of {type(return_value)}")
+    if debug:
+        print(f"  result: {_value} of {type(return_value).__name__}")
     return return_value
 
 
 exp = ExperimentConfig()
 field_names = [f.name for f in fields(exp)]
-# update initial values from environment
-print("=== START IMPORTING ENVIRONMENT ===")
-load_dotenv("parameters.env")
+print("=== CONFIG ===")
+if RUNNING_INTERACTIVE:
+    load_dotenv("./runs/98/parameters.env")  # inspect a specific experiment
+    pass  # do nothing
+else:
+    # when calling from the commandline, we always load parameters.env
+    load_dotenv("parameters.env")
 for key, value in os.environ.items():
     lkey = key.lower()
     if lkey in field_names:
         attribute_type = exp.__annotations__[lkey]  # pylint: disable=no-member
-        setattr(exp, lkey, safe_cast(attribute_type, value))
+        setattr(exp, lkey, safe_cast(attribute_type, value, debug=False))
         # check that it worked
-        print(f"  {lkey} = {getattr(exp, lkey)}")
+        print(f"  {lkey} = {getattr(exp, lkey)} ({type(getattr(exp, lkey)).__name__})")
         assert getattr(exp, lkey) == safe_cast(attribute_type, value)
-print("=== DONE IMPORTING ENVIRONMENT ===")
+        # check type
+        assert type(getattr(exp, lkey)).__name__ == attribute_type, f"{type(getattr(exp, lkey)).__name__} != {attribute_type}"
+# if chain_port not provided, set it to 10000 + experiment_id
+if "chain_port" not in os.environ:
+    exp.chain_port = 10_000 + int(exp.experiment_id)
+    print(f"  chain_port = {exp.chain_port}")
+if "db_port" not in os.environ:
+    exp.db_port = 5_433 + int(exp.experiment_id)
+    print(f"  db_port = {exp.db_port}")
 
 # update calculated values
 exp.calculate_values()
@@ -144,11 +167,10 @@ rng = np.random.default_rng(seed=int(exp.randseed))
 
 # %%
 # set up chain
-print(f"Experiment ID {exp.chain_port-10_000}")
 chain = LocalChain(LocalChain.Config(db_port=exp.db_port, chain_port=exp.chain_port))
 
 # %%
-# Parameters for pool initialization. If empty, defaults to default values, allows for custom values if needed
+# set up pool
 config = InteractiveHyperdrive.Config(
     position_duration=exp.term_seconds,
     checkpoint_duration=60 * 60 * 24,  # 1 day
@@ -288,7 +310,7 @@ for day in range(exp.term_days):
         # decide direction to trade
         go_long = rng.random() < 0.5  # go long 50% of the time
         # X% of the time let the arbitrageur act
-        arbitrageur_chance = 0.5
+        arbitrageur_chance = 0
         if rng.random() < arbitrageur_chance:
             # go_long = interactive_hyperdrive.hyperdrive_interface.calc_fixed_rate() > interactive_hyperdrive.hyperdrive_interface.get_variable_rate()
             for event in andy.execute_policy_action():
@@ -375,9 +397,10 @@ time_passed_days = (pool_info.timestamp.iloc[-1] - pool_info.timestamp.iloc[0]).
 print(f"time passed = {time_passed_days:.2f} days")
 apr_factor = 365 / time_passed_days
 print(f"  to scale APR from HPR we multiply by {apr_factor:,.0f} (365/{time_passed_days:.2f})")
-print(f"  share price went from {pool_info.share_price.iloc[0]:.4f} to {pool_info.share_price.iloc[-1]:.4f}")
+print(f"  share price went from {pool_info.share_price.iloc[0]:.4f} to {pool_info.share_price.iloc[-1]:.7f}")
 
 # do return calculations
+share_price = pool_info.share_price.iloc[-1]
 non_weth_index = (current_wallet.token_type != "WETH") & (current_wallet.position > float(MINIMUM_TRANSACTION_AMOUNT))
 weth_index = current_wallet.token_type == "WETH"
 ws_index = current_wallet.token_type == "WITHDRAWAL_SHARE"
@@ -386,8 +409,10 @@ for user in current_wallet.username.unique():
     user_idx = current_wallet.username == user
     # check if user has withdrawal shares
     if (user_idx & ws_index).sum() > 0:
-        # add withdrawal shares at 1:1 with WETH
-        current_wallet.loc[user_idx & weth_index, ["position"]] += current_wallet.loc[user_idx & ws_index, ["position"]].values
+        # add withdrawal shares valued at the latest share price
+        withdrawal_shares = current_wallet.loc[user_idx & ws_index, ["position"]].sum().values[0]
+        current_wallet.loc[user_idx & weth_index, ["position"]] += withdrawal_shares * share_price
+        print(f"adding pnl for {user} holding {withdrawal_shares:,.0f} withdrawal shares valued at share_price={share_price:,.7f} each")
     if user not in ["governance", "total", "share price"]:
         # simple PNL based on starting WETH balance
         current_wallet.loc[user_idx & weth_index, ["pnl"]] = current_wallet.loc[user_idx & weth_index, ["position"]].values - float(starting_base[user])

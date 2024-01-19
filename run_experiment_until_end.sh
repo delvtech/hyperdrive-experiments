@@ -1,11 +1,11 @@
 #!/bin/bash
 
 while true; do
-  ./run_experiment.sh
+  python run_experiment.py
 
-  # Check the exit status of run_experiment.sh
+  # Check the exit status of run_experiment.py
   if [ $? -eq 1 ]; then
-    echo "Exiting the loop as run_experiment.sh finished its execution."
+    echo "Exiting the loop as run_experiment.py finished its execution."
     break
   fi
 

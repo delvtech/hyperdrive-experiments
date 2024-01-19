@@ -73,7 +73,7 @@ def check_experiment_status(exp_folder):
 
     return started_runs, finished_runs
 
-def monitor(repeat, interval_seconds = 1, matrix_file='run_matrix.txt', exp_folder='./experiments', debug=False):
+def monitor(repeat, interval_seconds = 1, matrix_file='runs_table.csv', exp_folder='./runs', debug=False):
     if debug:
         start_monitor = time.time()
     experiment_length = None
@@ -83,7 +83,7 @@ def monitor(repeat, interval_seconds = 1, matrix_file='run_matrix.txt', exp_fold
         if not os.path.exists(exp_folder):
             print("No experiment in progress.", end='\r', flush=True)
         else:
-            new_experiment_length = get_number_of_lines(matrix_file)
+            new_experiment_length = get_number_of_lines(matrix_file)-1
             experiment_start_time = get_earliest_mtime(exp_folder)
             experiment_length = new_experiment_length
             print(f"\nExperiment started  at {time.ctime(experiment_start_time)}", end='\r', flush=True)
@@ -102,7 +102,12 @@ def monitor(repeat, interval_seconds = 1, matrix_file='run_matrix.txt', exp_fold
                     + f"\nRuns: running={started_runs-finished_runs:3.0f}, "\
                     + f"finished={finished_runs:3.0f}, "\
                     + f"permutations={experiment_length:3.0f}"
-                logstr += f", {experiment_duration/finished_runs:5.1f}s per run" if finished_runs > 0 else ""
+                if finished_runs > 0:
+                    run_speed = experiment_duration/finished_runs
+                    logstr += f", {run_speed:5.1f}s per run"
+                    runs_left = experiment_length - finished_runs
+                    eta = runs_left * run_speed
+                    logstr += f", ETA {eta//3600:02,.0f}:{eta%3600//60:02,.0f}:{eta%60:02,.0f}"
                 print(logstr)
         if debug:
             print(f"monitor took {time.time() - start_monitor:,.3f} seconds", end='\r', flush=True)
