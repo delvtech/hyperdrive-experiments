@@ -19,15 +19,16 @@ def running_interactive():
 
 # %%
 EXPERIMENTS_DIR = "./runs"
-EPOCHS = 20
+EPOCHS = 15
 RUNS_TABLE_FILE = "runs_table.csv"
 
+# "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY": {"name": "linspace", "min": 0.01, "max": 0.1},
 # if runs_Table.csv doesn't exist
 if not os.path.exists(RUNS_TABLE_FILE):
     # Define your parameters
     parameters = {
         "FIXED_RATE": [0.035],
-        "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY": {"name": "linspace", "min": 0.01, "max": 0.1},
+        "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY": list(np.arange(0.01, 0.11, 0.01)),
         "CURVE_FEE": [0.001, 0.005, 0.01],  # 0.1% to 1
         "FLAT_FEE": [0.0001, 0.0005, 0.001]  # 1 to 10 bps
     }

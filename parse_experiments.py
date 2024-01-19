@@ -18,8 +18,10 @@ import darkmode_orange
 FLOAT_FMT = ",.0f"
 short_variable_names = {
     "CURVE_FEE": "curve fee",
+    "FLAT_FEE": "flat fee",
     "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY": "volume",
-    "FIXED_RATE": "rate"
+    "FIXED_RATE": "rate",
+    "MINIMUM_TRADE_DAYS": "trade length"
 }
 
 # %%
@@ -36,6 +38,7 @@ df1 = pd.read_parquet("agg_results1.parquet") if Path("agg_results1.parquet").ex
 df2 = pd.read_parquet("agg_results2.parquet") if Path("agg_results2.parquet").exists() else pd.DataFrame()
 rate_paths = pd.read_parquet("rate_paths.parquet") if Path("rate_paths.parquet").exists() else pd.DataFrame()
 incomplete_runs = []
+experiment_stats = pd.DataFrame()
 # for each folder in the experiments folder
 for folder in EXPERIMENT_FOLDER.iterdir():
     if folder.is_dir():
@@ -85,26 +88,35 @@ for folder in EXPERIMENT_FOLDER.iterdir():
             else:
                 incomplete_runs.append(experiment_id)
                 print(f"Experiment ID {experiment_id} has no results2.parquet")
-        if rate_paths.shape[0] > 0 and experiment_id in rate_paths["experiment"].values:
-            print(f"Experiment ID {experiment_id} already in rate_paths.parquet")
-        else:
-            # check if pool_info.parquet exists and it has a non-zero size
-            file3 = folder / "pool_info.parquet"
-            if file3.exists() and file3.stat().st_size > 0:
-                # load it
-                print(f"loading results from {file3} for experiment {experiment_id}")
-                df_new = pd.read_parquet(file3)
-                # add the experiment id
-                df_new["experiment"] = experiment_id
-                # append it
-                rate_paths = pd.concat([rate_paths, df_new], ignore_index=True)
-            else:
-                incomplete_runs.append(experiment_id)
-                print(f"Experiment ID {experiment_id} has no pool_info.parquet")
+        # if rate_paths.shape[0] > 0 and experiment_id in rate_paths["experiment"].values:
+        #     print(f"Experiment ID {experiment_id} already in rate_paths.parquet")
+        # else:
+        #     # check if pool_info.parquet exists and it has a non-zero size
+        #     file3 = folder / "pool_info.parquet"
+        #     if file3.exists() and file3.stat().st_size > 0:
+        #         # load it
+        #         print(f"loading results from {file3} for experiment {experiment_id}")
+        #         df_new = pd.read_parquet(file3)
+        #         # add the experiment id
+        #         df_new["experiment"] = experiment_id
+        #         # append it
+        #         print("rate paths before concat: ", rate_paths.shape)
+        #         print("df_new: ", df_new.shape)
+        #         rate_paths = pd.concat([rate_paths, df_new], ignore_index=True, axis=0)
+        #         print("rate paths  after concat: ", rate_paths.shape)
+        #     else:
+        #         incomplete_runs.append(experiment_id)
+        #         print(f"Experiment ID {experiment_id} has no pool_info.parquet")
+        file4 = folder / "experiment_stats.json"
+        # record = json.loads(file4.read_text())
+        # new_df = pd.DataFrame.from_records([record])
+        new_df = pd.read_json(file4, orient="records", lines=True)
+        new_df.index = pd.Index(data=[experiment_id],name="experiment")
+        experiment_stats = pd.concat([experiment_stats, new_df], ignore_index=False)
 if "AGENT0_INSTALL_FOLDER" in df2.columns:
     df2 = df2.drop(columns=["AGENT0_INSTALL_FOLDER"])
-df1.to_parquet("agg_results1.parquet")
-df2.to_parquet("agg_results2.parquet")
+# df1.to_parquet("agg_results1.parquet")
+# df2.to_parquet("agg_results2.parquet")
 incomplete_runs = list(set(incomplete_runs))
 print(f"incomplete runs: {','.join(map(str, incomplete_runs))}")
 
@@ -129,6 +141,7 @@ cols = df2.columns
 cols = cols[cols.get_loc("experiment") + 1 :]
 # convert to float
 df2[cols] = df2[cols].astype(float)
+df2.apr = df2.apr.astype(float)
 # summarize
 df2.loc[:, cols].describe()
 idx = df2.username == "larry"
@@ -158,37 +171,37 @@ print(formula)
 
 # %%
 # big table
-display(
-    df2.loc[idx | last_share_price, :]
-    .rename(columns={"DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY": "volume_per_day"})
-    .sort_values("apr", ascending=False)
-    .style.format(
-        subset=["apr", "position", "total_volume"],
-        formatter="{:" + FLOAT_FMT + "}",
-    )
-    .hide(axis="index")
-    .format(
-        subset=["hpr", "apr"],
-        formatter="{:.2%}",
-    )
-    .hide(
-        axis="columns",
-        subset=[
-            "block_number",
-            "TERM_DAYS",
-            "AMOUNT_OF_LIQUIDITY",
-            "GOVERNANCE_FEE",
-            "RANDSEED",
-            "FLAT_FEE",
-        ],
-    )
-)
-df2.loc[idx | last_share_price, :].to_csv("bigtable.csv", index=False)
+# display(
+#     df2.loc[idx | last_share_price, :]
+#     .rename(columns={"DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY": "volume_per_day"})
+#     .sort_values("apr", ascending=False)
+#     .style.format(
+#         subset=["apr", "position", "total_volume"],
+#         formatter="{:" + FLOAT_FMT + "}",
+#     )
+#     .hide(axis="index")
+#     .format(
+#         subset=["hpr", "apr"],
+#         formatter="{:.2%}",
+#     )
+#     .hide(
+#         axis="columns",
+#         subset=[
+#             "block_number",
+#             "TERM_DAYS",
+#             "AMOUNT_OF_LIQUIDITY",
+#             "GOVERNANCE_FEE",
+#             "RANDSEED",
+#             "FLAT_FEE",
+#         ],
+#     )
+# )
+# df2.loc[idx | last_share_price, :].to_csv("bigtable.csv", index=False)
 
 # %%
 # check every combination
 # var_list = ["CURVE_FEE", "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY", "FIXED_RATE"]
-var_list = ["CURVE_FEE", "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"]
+var_list = ["CURVE_FEE", "FLAT_FEE", "MINIMUM_TRADE_DAYS", "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"]
 x_var = var_list[0]
 
 print("count")
@@ -314,6 +327,74 @@ plt.plot(x_vars_with_zero, y_fit, color='orange')
 plt.axhline(0.035, color='red', label="Vault variable return", alpha=1, linestyle='--')
 plt.title(f"LP Profitability vs. {short_variable_names[most_variable]}")
 plt.legend()
+plt.show()
+
+# %%
+# plot APR vs. volume for given curve and flat fees
+plot_data = copy(df2.loc[idx, :])
+records = []
+for curve_fee in np.sort(df2.loc[idx, "CURVE_FEE"].unique()):
+    for flat_fee in np.sort(df2.loc[idx, "FLAT_FEE"].unique()):
+        subidx = (plot_data.CURVE_FEE == curve_fee) & (plot_data.FLAT_FEE == flat_fee)
+        print(f"num={subidx.sum()}")
+        x_data = plot_data.loc[subidx, "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"]
+        # x_data = [experiment_stats.loc[x,"total_volume"] for x in plot_data.loc[subidx, "EXPERIMENT_ID"]]
+        y_data = plot_data.loc[subidx, "apr"]
+        p = plt.scatter(
+            x_data,
+            y_data,
+            label=f"curve_fee={curve_fee:.2%}, flat_fee={flat_fee:.2%}",
+            alpha=1,
+        )
+        plt.xlabel(short_variable_names["DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"])
+        plt.ylabel("Return (APR)")
+        plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+        ylim = plt.gca().get_ylim()
+        ylim = np.floor(ylim[0] * 1000) / 1000, np.ceil(ylim[1] * 1000) / 1000
+        plt.gca().set_ylim(ylim)
+        yticks = np.arange(min(ylim[0],0.034), ylim[1]+0.001, 0.001)  # 0.1% increment
+        plt.gca().set_yticks(yticks)
+        # use sm to get linear regression line of best fit
+        model = sm.OLS(y_data, sm.add_constant(x_data)).fit()
+        # plot linear regression line
+        # plt.plot(x_vars_with_zero, y_fit, color='orange')
+        plt.plot(x_data, model.predict(sm.add_constant(x_data)), color='orange')
+        plt.axhline(0.035, color='red', label="Vault variable return", alpha=1, linestyle='--')
+        plt.title(f"LP Profitability vs. {short_variable_names['DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY']}")
+        plt.legend()
+        plt.show()
+        slope = model.params[1]
+        records.append([curve_fee,flat_fee,slope])
+
+# %%
+df3 = pd.DataFrame(records, columns=["CURVE_FEE","FLAT_FEE","SLOPE"])
+# df3 = df3.set_index(["CURVE_FEE","FLAT_FEE"])
+display(df3)
+
+display(df3.pivot(index="FLAT_FEE", columns="CURVE_FEE", values="SLOPE"))
+
+for curve_fee in np.sort(df2.loc[idx, "CURVE_FEE"].unique()):
+    subidx = df3.CURVE_FEE == curve_fee
+    x_data = df3.loc[subidx, "FLAT_FEE"]
+    y_data = df3.loc[subidx, "SLOPE"]
+    p = plt.scatter(x_data,y_data,label=f"curve_fee={curve_fee:.2%}")
+plt.xlabel(short_variable_names["FLAT_FEE"])
+plt.ylabel("Slope")
+plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+plt.legend()
+plt.title(f"Slope vs. {short_variable_names['FLAT_FEE']}")
+plt.show()
+
+for flat_fee in np.sort(df2.loc[idx, "FLAT_FEE"].unique()):
+    subidx = df3.FLAT_FEE == flat_fee
+    x_data = df3.loc[subidx, "CURVE_FEE"]
+    y_data = df3.loc[subidx, "SLOPE"]
+    p = plt.scatter(x_data,y_data,label=f"flat_fee={flat_fee:.2%}")
+plt.xlabel(short_variable_names["CURVE_FEE"])
+plt.ylabel("Slope")
+plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+plt.legend()
+plt.title(f"Slope vs. {short_variable_names['CURVE_FEE']}")
 plt.show()
 
 # %%
