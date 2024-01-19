@@ -535,3 +535,14 @@ display(
 )
 
 # %%
+# %%
+# inspect pool_info of a specific experiment
+pool_info = pd.read_parquet("results/exp_five/4/pool_info.parquet")
+pool_info
+
+# %%
+# inspect current_wallet of a specific experiment
+current_wallet = pd.read_parquet("results/exp_five/4/current_wallet.parquet")
+current_wallet
+
+# %%

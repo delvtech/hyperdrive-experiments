@@ -86,9 +86,9 @@ else:
     NEXT_EXPERIMENT_ID = sum(os.path.isdir(os.path.join(EXPERIMENTS_DIR, d)) for d in os.listdir(EXPERIMENTS_DIR))
 print(f"Next Experiment ID: {NEXT_EXPERIMENT_ID}")
 if NEXT_EXPERIMENT_ID > runs_table.index[-1]:
-    # exit with code 1 if all experiments have been run
+    # exit with code 0 if all experiments have been run
     print("All experiments have been run.")
-    sys.exit(1)
+    sys.exit(0)
 EXPERIMENT_DIR = os.path.join(EXPERIMENTS_DIR, str(NEXT_EXPERIMENT_ID))
 if not os.path.exists(EXPERIMENT_DIR):
     os.mkdir(EXPERIMENT_DIR)
