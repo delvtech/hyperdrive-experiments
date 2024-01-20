@@ -88,25 +88,25 @@ for folder in EXPERIMENT_FOLDER.iterdir():
             else:
                 incomplete_runs.append(experiment_id)
                 print(f"Experiment ID {experiment_id} has no results2.parquet")
-        # if rate_paths.shape[0] > 0 and experiment_id in rate_paths["experiment"].values:
-        #     print(f"Experiment ID {experiment_id} already in rate_paths.parquet")
-        # else:
-        #     # check if pool_info.parquet exists and it has a non-zero size
-        #     file3 = folder / "pool_info.parquet"
-        #     if file3.exists() and file3.stat().st_size > 0:
-        #         # load it
-        #         print(f"loading results from {file3} for experiment {experiment_id}")
-        #         df_new = pd.read_parquet(file3)
-        #         # add the experiment id
-        #         df_new["experiment"] = experiment_id
-        #         # append it
-        #         print("rate paths before concat: ", rate_paths.shape)
-        #         print("df_new: ", df_new.shape)
-        #         rate_paths = pd.concat([rate_paths, df_new], ignore_index=True, axis=0)
-        #         print("rate paths  after concat: ", rate_paths.shape)
-        #     else:
-        #         incomplete_runs.append(experiment_id)
-        #         print(f"Experiment ID {experiment_id} has no pool_info.parquet")
+        if rate_paths.shape[0] > 0 and experiment_id in rate_paths["experiment"].values:
+            print(f"Experiment ID {experiment_id} already in rate_paths.parquet")
+        else:
+            # check if pool_info.parquet exists and it has a non-zero size
+            file3 = folder / "pool_info.parquet"
+            if file3.exists() and file3.stat().st_size > 0:
+                # load it
+                print(f"loading results from {file3} for experiment {experiment_id}")
+                df_new = pd.read_parquet(file3)
+                # add the experiment id
+                df_new["experiment"] = experiment_id
+                # append it
+                print("rate paths before concat: ", rate_paths.shape)
+                print("df_new: ", df_new.shape)
+                rate_paths = pd.concat([rate_paths, df_new], ignore_index=True, axis=0)
+                print("rate paths  after concat: ", rate_paths.shape)
+            else:
+                incomplete_runs.append(experiment_id)
+                print(f"Experiment ID {experiment_id} has no pool_info.parquet")
         file4 = folder / "experiment_stats.json"
         if file4.exists() and file4.stat().st_size > 0:
             # load it
@@ -206,6 +206,8 @@ print(formula)
 # check every combination
 # var_list = ["CURVE_FEE", "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY", "FIXED_RATE"]
 var_list = ["CURVE_FEE", "FLAT_FEE", "MINIMUM_TRADE_DAYS", "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"]
+# keep only vars that exist in our columns
+var_list = [v for v in var_list if v in df2.columns]
 x_var = var_list[0]
 
 print("count")
@@ -334,6 +336,36 @@ plt.legend()
 plt.show()
 
 # %%
+# plot experiment_stats[experiment_id, "total_volume"] vs. "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"
+plot_data = copy(df2.loc[idx, :])
+y_data = [experiment_stats.loc[x,"total_volume"] for x in plot_data.loc[:, "EXPERIMENT_ID"]]
+plot_data["total_volume"] = y_data
+x_data = plot_data.loc[:, "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"]
+p = plt.scatter(x_data,y_data, label='total_volume')
+color = p.get_facecolor()
+p.set_edgecolor(color)
+p.set_facecolor("none")
+plt.xlabel("target_volume")
+plt.ylabel("total_volume")
+# plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+plt.gca().xaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+plt.title(f"total_volume vs. target_volume")
+plt.show()
+
+# groupby DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY, show min and max of total_volume
+minmaxvol = plot_data.groupby("DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY").agg(
+    min_total_volume=("total_volume", "min"),
+    max_total_volume=("total_volume", "max"),
+).reset_index()
+minmaxvol.rename(columns={"DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY": "target_volume"}, inplace=True)
+minmaxvol["max_vs_min"] = minmaxvol.max_total_volume - minmaxvol.min_total_volume
+minmaxvol["max_vs_min_pct"] = minmaxvol.max_vs_min / minmaxvol.min_total_volume
+display(minmaxvol.style.hide(axis="index")
+    .format(subset=["min_total_volume", "max_total_volume", "max_vs_min", "max_vs_min_pct"],formatter="{:" + FLOAT_FMT + "}")
+    .format(subset=["target_volume","max_vs_min_pct"],formatter="{:,.2%}")
+)
+
+# %%
 # plot APR vs. volume for given curve and flat fees
 plot_data = copy(df2.loc[idx, :])
 records = []
@@ -433,34 +465,37 @@ plt.legend()
 plt.show()
 
 # %%
+# prepare rate paths
 min_timestamp_by_experiment = rate_paths.groupby('experiment')['timestamp'].min()
 rate_paths.loc[:,"adjusted_timestamp"] = rate_paths["timestamp"] - min_timestamp_by_experiment[rate_paths["experiment"]].values
 rate_paths['adjusted_timestamp_seconds'] = rate_paths['adjusted_timestamp'].dt.total_seconds()
 rate_paths['adjusted_timestamp_days'] = rate_paths['adjusted_timestamp_seconds'] / (60 * 60 * 24)
+rate_paths["fixed_rate"] = rate_paths["fixed_rate"].astype(float)
 
 # %%
 # plot rate paths
-fig = plt.figure()
+fig = plt.figure(figsize=(16/2, 9/2))
 ax = plt.gca()
 unique_experiments = rate_paths['experiment'].unique()
 rate_volatility_records = []
 for experiment in unique_experiments[:20]:
     idx = rate_paths['experiment'] == experiment
-    rate_paths.loc[idx].plot(x='adjusted_timestamp_days', y='fixed_rate', label=experiment, alpha=0.1, ax=ax)
+    rate_paths.loc[idx].plot(x='adjusted_timestamp_days', y='fixed_rate', label=experiment, alpha=0.2, ax=ax)
     rate_volatility = rate_paths.loc[idx, "fixed_rate"].std()
     volume = df1.loc[df1.experiment==experiment,"DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"].iloc[0]
     fee = df1.loc[df1.experiment==experiment,"CURVE_FEE"].iloc[0]
-    print(f"{rate_volatility=}")
+    # print(f"{rate_volatility=}")
     rate_volatility_records.append([experiment, rate_volatility, volume, fee])
 # disable legend
 ax.legend().set_visible(False)
-# print x axis format
-# print(ax.xaxis.get_major_formatter())
-# set x axis format
-# ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:.0f} days"))
-# Set the custom formatter for the x-axis
 ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:.0f}"))
 ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+ylim = plt.gca().get_ylim()
+ylim = 0, ylim[1]
+plt.gca().set_ylim(ylim)
+inc = 0.005  # 0.5% increment
+yticks = np.arange(ylim[0], ylim[1]+inc, inc)
+plt.gca().set_yticks(yticks)
 plt.xlabel('Time (days)')
 plt.xticks(rotation=45)
 plt.xticks(np.append(np.arange(0, 360, 30),365))
@@ -469,13 +504,16 @@ plt.ylim(0, 0.06)
 plt.show()
 
 # %%
+# plot rate volatility vs. volume
 rate_volatility_df = pd.DataFrame(rate_volatility_records, columns=["experiment", "rate_volatility", "volume", "fee"])
 display(rate_volatility_df.style.hide(axis="index"))
 rate_volatility_df.volume = rate_volatility_df.volume.astype(float)
 corr = rate_volatility_df.corr()["rate_volatility"]["volume"]
 rate_volatility_df.plot(x="volume", y="rate_volatility", kind="scatter", label=f"correlation={corr:.2%}")
 display(corr)
-plt.legend(loc="upper left");
+plt.legend(loc="upper left")
+plt.title("Rate Volatility vs. Volume")
+plt.show()
 
 # %%
 # rate historgrams

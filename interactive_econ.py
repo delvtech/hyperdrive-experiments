@@ -31,6 +31,7 @@ import wandb
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 from agent0.hyperdrive.interactive.interactive_hyperdrive_agent import InteractiveHyperdriveAgent
 from agent0.hyperdrive.policies import Zoo
+from chainsync.db.hyperdrive import get_wallet_deltas
 
 # pylint: disable=bare-except
 # ruff: noqa: A001 (allow shadowing a python builtin)
@@ -90,7 +91,7 @@ class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-
     db_port: int = 5_433
     chain_port: int = 10_000
     daily_volume_percentage_of_liquidity: float = 0.01  # 1%
-    term_days: int = 10
+    term_days: int = 20
     minimum_trade_days: float = 0  # minimum number of days to keep a trade open
     float_fmt: str = ",.0f"
     display_cols: list[str] = field(default_factory=lambda: cols + ["base_token_type", "maturity_time"])
@@ -119,7 +120,7 @@ def safe_cast(_type: type, _value: str, debug: bool = False):
     if debug:
         print(f"_type == int: {_type == 'int'}")
     if _type == "int":
-        return_value = int(_value)
+        return_value = int(float(_value))
     if debug:
         print(f"_type == float: {_type == 'float'}")
     if _type == "float":
@@ -252,7 +253,9 @@ def trade_in_direction(
 ):
     max = None
     event = None
-    current_block_time = _interactive_hyperdrive.hyperdrive_interface.current_pool_state.block_time
+    pool_state = _interactive_hyperdrive.hyperdrive_interface.current_pool_state
+    spot_price = _interactive_hyperdrive.hyperdrive_interface.calc_spot_price(pool_state)
+    current_block_time = pool_state.block_time
     # execute the trade in the chosen direction
     if go_long:
         if len(agent.wallet.shorts) > 0:  # check if we have shorts, and close them if we do
@@ -268,7 +271,7 @@ def trade_in_direction(
                     trade_size_bonds = min(amount_to_trade_bonds, short.balance, max.long.bonds)
                     if trade_size_bonds > MINIMUM_TRANSACTION_AMOUNT:
                         event = agent.close_short(maturity_time, trade_size_bonds)
-                        _amount_to_trade_base -= event.base_amount
+                        _amount_to_trade_base -= event.bond_amount * spot_price
                     if _amount_to_trade_base <= 0:
                         break  # stop looping across shorts if we've traded enough
                 else:
@@ -306,7 +309,7 @@ def trade_in_direction(
             trade_size_bonds = min(amount_to_trade_bonds, max.short.bonds)
             if trade_size_bonds > MINIMUM_TRANSACTION_AMOUNT:
                 event = agent.open_short(trade_size_bonds)
-                _amount_to_trade_base -= event.base_amount
+                _amount_to_trade_base -= event.bond_amount * spot_price
     return _amount_to_trade_base
 
 # sourcery skip: avoid-builtin-shadow, do-not-use-bare-except, invert-any-all,
@@ -321,7 +324,8 @@ for day in range(exp.term_days):
         share_price = pool_state.pool_info.share_price
 
         # decide direction to trade
-        go_long = rng.random() < 0.5  # go long 50% of the time
+        # go_long = rng.random() < 0.5  # go long 50% of the time
+        go_long = interactive_hyperdrive.hyperdrive_interface.calc_fixed_rate(pool_state) > pool_state.variable_rate
         # X% of the time let the arbitrageur act
         arbitrageur_chance = 0
         if rng.random() < arbitrageur_chance:
@@ -522,6 +526,10 @@ if RUNNING_INTERACTIVE:
     )
     plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
     plt.show()
+
+# %%
+# get wallet deltas
+wallet_deltas = get_wallet_deltas(session=interactive_hyperdrive.db_session)
 
 # %%
 # import time
