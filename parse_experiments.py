@@ -108,17 +108,21 @@ for folder in EXPERIMENT_FOLDER.iterdir():
         #         incomplete_runs.append(experiment_id)
         #         print(f"Experiment ID {experiment_id} has no pool_info.parquet")
         file4 = folder / "experiment_stats.json"
-        # record = json.loads(file4.read_text())
-        # new_df = pd.DataFrame.from_records([record])
-        new_df = pd.read_json(file4, orient="records", lines=True)
-        new_df.index = pd.Index(data=[experiment_id],name="experiment")
-        experiment_stats = pd.concat([experiment_stats, new_df], ignore_index=False)
+        if file4.exists() and file4.stat().st_size > 0:
+            # load it
+            print(f"loading results from {file4} for experiment {experiment_id}")
+            new_df = pd.read_json(file4, orient="records", lines=True)
+            new_df.index = pd.Index(data=[experiment_id],name="experiment")
+            experiment_stats = pd.concat([experiment_stats, new_df], ignore_index=False)
+        else:
+            incomplete_runs.append(experiment_id)
+            print(f"Experiment ID {experiment_id} has no experiment_stats.json")
 if "AGENT0_INSTALL_FOLDER" in df2.columns:
     df2 = df2.drop(columns=["AGENT0_INSTALL_FOLDER"])
 # df1.to_parquet("agg_results1.parquet")
 # df2.to_parquet("agg_results2.parquet")
 incomplete_runs = list(set(incomplete_runs))
-print(f"incomplete runs: {','.join(map(str, incomplete_runs))}")
+print(f"{len(incomplete_runs)} incomplete runs: {','.join(map(str, incomplete_runs))}")
 
 # %%
 # ensure data looks correct
