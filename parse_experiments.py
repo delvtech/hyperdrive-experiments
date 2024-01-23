@@ -265,7 +265,7 @@ if matrix_count.max().max() > 1:
 
 # %%
 # parse variables
-variables_to_check_for_variability = ["CURVE_FEE", "FLAT_FEE", "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"]
+variables_to_check_for_variability = ["CURVE_FEE", "FLAT_FEE", "MINIMUM_TRADE_DAYS", "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"]
 most_variable = ''
 least_variable = ''
 for variable in variables_to_check_for_variability:
@@ -290,7 +290,9 @@ matrix = df2.loc[idx, [most_variable, "apr"]].pivot_table(
 matrix_formatted = matrix.copy()
 column_index = matrix.columns
 column_index.name = ''
-column_index = matrix.columns.map(lambda x: f"{short_variable_names[most_variable]}={x:,.1%}")
+short_name = short_variable_names[most_variable]
+fmt = ",.1%" if short_name != "MINIMUM_TRADE_DAYS" else ",.0f"
+column_index = matrix.columns.map(lambda x: f"{short_name}={x:,.0f}")
 matrix_formatted.columns = column_index
 matrix_formatted = matrix_formatted.applymap(lambda x: f"{x:,.2%}")
 matrix_formatted.set_index(pd.Index(name="", data=["LP profitability"]), inplace=True)

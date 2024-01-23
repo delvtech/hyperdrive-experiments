@@ -348,10 +348,6 @@ for day in range(exp.term_days):
 print(f"experiment finished in {(time.time() - start_time):,.2f} seconds")
 
 # %%
-# save snapshot
-chain.save_snapshot()
-
-# %%
 # inspect pool state
 pool_state = interactive_hyperdrive.get_pool_state()
 pool_state.to_parquet("pool_state.parquet")
@@ -377,7 +373,6 @@ if RUNNING_INTERACTIVE:
 else:
     print(current_wallet)
 
-# %%
 # %%
 # Liquidate Rob's trades, at wherever the rate is
 events = rob.liquidate()
