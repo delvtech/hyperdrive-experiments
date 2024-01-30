@@ -11,8 +11,8 @@ At the end, we close out all positions, and evaluate results based off the WETH 
 from __future__ import annotations
 
 import datetime
-import logging
 import json
+import logging
 import os
 import sys
 import time
@@ -23,15 +23,15 @@ from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
+import wandb
+from chainsync.db.hyperdrive import get_wallet_deltas
 from dotenv import load_dotenv
 from fixedpointmath import FixedPoint
 from matplotlib import pyplot as plt  # pylint: disable=import-error,no-name-in-module
 
-import wandb
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 from agent0.hyperdrive.interactive.interactive_hyperdrive_agent import InteractiveHyperdriveAgent
 from agent0.hyperdrive.policies import Zoo
-from chainsync.db.hyperdrive import get_wallet_deltas
 
 # pylint: disable=bare-except
 # ruff: noqa: A001 (allow shadowing a python builtin)
@@ -155,8 +155,10 @@ for key, value in os.environ.items():
         # check that it worked
         print(f"  {lkey} = {getattr(exp, lkey)} ({type(getattr(exp, lkey)).__name__})")
         assert getattr(exp, lkey) == safe_cast(attribute_type, value)
-        # check type 
-        assert type(getattr(exp, lkey)).__name__ == attribute_type, f"{type(getattr(exp, lkey)).__name__} != {attribute_type}"
+        # check type
+        assert (
+            type(getattr(exp, lkey)).__name__ == attribute_type
+        ), f"{type(getattr(exp, lkey)).__name__} != {attribute_type}"
 # if chain_port not provided, set it to 10000 + experiment_id
 if "chain_port" not in os.environ:
     exp.chain_port = 10_000 + int(exp.experiment_id)
@@ -194,19 +196,19 @@ interactive_hyperdrive = InteractiveHyperdrive(chain, config)
 # set up agents
 larry = interactive_hyperdrive.init_agent(base=FixedPoint(exp.amount_of_liquidity), name="larry")
 rob = interactive_hyperdrive.init_agent(base=FixedPoint(exp.amount_of_liquidity), name="rob")
-andy_base = FixedPoint(exp.amount_of_liquidity*100)
+andy_base = FixedPoint(exp.amount_of_liquidity * 100)
 andy_config = Zoo.lp_and_arb.Config(
     lp_portion=FixedPoint(0),
     high_fixed_rate_thresh=FixedPoint(0),
     low_fixed_rate_thresh=FixedPoint(0),
-    minimum_trade_amount=MINIMUM_TRANSACTION_AMOUNT
+    minimum_trade_amount=MINIMUM_TRANSACTION_AMOUNT,
 )
-andy = interactive_hyperdrive.init_agent(base=andy_base,name="andy",policy=Zoo.lp_and_arb,policy_config=andy_config)
+andy = interactive_hyperdrive.init_agent(base=andy_base, name="andy", policy=Zoo.lp_and_arb, policy_config=andy_config)
 print("=== STARTING WETH BALANCES ===")
 starting_base = {}
 for agent in interactive_hyperdrive._pool_agents:  # pylint: disable=protected-access
     starting_base[agent.name] = agent.wallet.balance.amount
-for k,v in starting_base.items():
+for k, v in starting_base.items():
     print(f"{k:6}: {float(v):13,.0f}")
 larry.add_liquidity(base=FixedPoint(exp.amount_of_liquidity))  # 10 million
 
@@ -234,15 +236,16 @@ def get_max(
     GetMax
         A NamedTuple containing the max long in base, max long in bonds, max short in bonds, and max short in base.
     """
-    max_long_base = _interactive_hyperdrive.hyperdrive_interface.calc_max_long(budget=_current_base)
-    max_long_bonds = _interactive_hyperdrive.hyperdrive_interface.calc_bonds_out_given_shares_in_down(max_long_base / _share_price)
-    max_short_bonds = _interactive_hyperdrive.hyperdrive_interface.calc_max_short(budget=_current_base)
-    max_short_shares = _interactive_hyperdrive.hyperdrive_interface.calc_shares_out_given_bonds_in_down(max_short_bonds)
+    max_long_base = _interactive_hyperdrive.interface.calc_max_long(budget=_current_base)
+    max_long_bonds = _interactive_hyperdrive.interface.calc_bonds_out_given_shares_in_down(max_long_base / _share_price)
+    max_short_bonds = _interactive_hyperdrive.interface.calc_max_short(budget=_current_base)
+    max_short_shares = _interactive_hyperdrive.interface.calc_shares_out_given_bonds_in_down(max_short_bonds)
     max_short_base = max_short_shares * _share_price
     return GetMax(
         Max(max_long_base, max_long_bonds),
         Max(max_short_base, max_short_bonds),
     )
+
 
 def trade_in_direction(
     go_long: bool,
@@ -253,20 +256,18 @@ def trade_in_direction(
 ):
     max = None
     event = None
-    pool_state = _interactive_hyperdrive.hyperdrive_interface.current_pool_state
-    spot_price = _interactive_hyperdrive.hyperdrive_interface.calc_spot_price(pool_state)
+    pool_state = _interactive_hyperdrive.interface.current_pool_state
+    spot_price = _interactive_hyperdrive.interface.calc_spot_price(pool_state)
     current_block_time = pool_state.block_time
     # execute the trade in the chosen direction
     if go_long:
         if len(agent.wallet.shorts) > 0:  # check if we have shorts, and close them if we do
             for maturity_time, short in agent.wallet.shorts.copy().items():
-                days_passed = (short.maturity_time - current_block_time)//60//60//24
+                days_passed = (short.maturity_time - current_block_time) // 60 // 60 // 24
                 if days_passed >= exp.minimum_trade_days:
                     max = get_max(_interactive_hyperdrive, _share_price, agent.wallet.balance.amount)
-                    amount_to_trade_bonds = (
-                        _interactive_hyperdrive.hyperdrive_interface.calc_bonds_out_given_shares_in_down(
-                            _amount_to_trade_base / _share_price, pool_state
-                        )
+                    amount_to_trade_bonds = _interactive_hyperdrive.interface.calc_bonds_out_given_shares_in_down(
+                        _amount_to_trade_base / _share_price, pool_state
                     )
                     trade_size_bonds = min(amount_to_trade_bonds, short.balance, max.long.bonds)
                     if trade_size_bonds > MINIMUM_TRANSACTION_AMOUNT:
@@ -285,13 +286,11 @@ def trade_in_direction(
     else:
         if len(agent.wallet.longs) > 0:  # check if we have longs, and close them if we do
             for maturity_time, long in agent.wallet.longs.copy().items():
-                days_passed = (long.maturity_time - current_block_time)//60//60//24
+                days_passed = (long.maturity_time - current_block_time) // 60 // 60 // 24
                 if days_passed >= exp.minimum_trade_days:
                     max = get_max(_interactive_hyperdrive, _share_price, agent.wallet.balance.amount)
-                    amount_to_trade_bonds = (
-                        _interactive_hyperdrive.hyperdrive_interface.calc_bonds_out_given_shares_in_down(
-                            _amount_to_trade_base / _share_price, pool_state
-                        )
+                    amount_to_trade_bonds = _interactive_hyperdrive.interface.calc_bonds_out_given_shares_in_down(
+                        _amount_to_trade_base / _share_price, pool_state
                     )
                     trade_size_bonds = min(amount_to_trade_bonds, long.balance, max.short.bonds)
                     if trade_size_bonds > MINIMUM_TRANSACTION_AMOUNT:
@@ -303,7 +302,7 @@ def trade_in_direction(
                     print(f"not closing position of {days_passed=} because it's earlier than {exp.minimum_trade_days=}")
         if _amount_to_trade_base > 0:
             max = get_max(_interactive_hyperdrive, _share_price, agent.wallet.balance.amount)
-            amount_to_trade_bonds = _interactive_hyperdrive.hyperdrive_interface.calc_bonds_out_given_shares_in_down(
+            amount_to_trade_bonds = _interactive_hyperdrive.interface.calc_bonds_out_given_shares_in_down(
                 _amount_to_trade_base / share_price, pool_state
             )
             trade_size_bonds = min(amount_to_trade_bonds, max.short.bonds)
@@ -311,6 +310,7 @@ def trade_in_direction(
                 event = agent.open_short(trade_size_bonds)
                 _amount_to_trade_base -= event.bond_amount * spot_price
     return _amount_to_trade_base
+
 
 # sourcery skip: avoid-builtin-shadow, do-not-use-bare-except, invert-any-all,
 # remove-unnecessary-else, swap-if-else-branches
@@ -320,21 +320,23 @@ for day in range(exp.term_days):
     amount_to_trade_base = FixedPoint(exp.amount_of_liquidity * exp.daily_volume_percentage_of_liquidity)
     trades_today = 0
     while amount_to_trade_base > MINIMUM_TRANSACTION_AMOUNT:
-        pool_state = interactive_hyperdrive.hyperdrive_interface.current_pool_state
+        pool_state = interactive_hyperdrive.interface.current_pool_state
         share_price = pool_state.pool_info.lp_share_price
 
         # decide direction to trade
         # go_long = rng.random() < 0.5  # go long 50% of the time
-        go_long = interactive_hyperdrive.hyperdrive_interface.calc_fixed_rate(pool_state) > pool_state.variable_rate
+        go_long = interactive_hyperdrive.interface.calc_fixed_rate(pool_state) > pool_state.variable_rate
         # X% of the time let the arbitrageur act
         arbitrageur_chance = 0
         if rng.random() < arbitrageur_chance:
-            # go_long = interactive_hyperdrive.hyperdrive_interface.calc_fixed_rate() > interactive_hyperdrive.hyperdrive_interface.get_variable_rate()
+            # go_long = interactive_hyperdrive.interface.calc_fixed_rate() > interactive_hyperdrive.interface.get_variable_rate()
             for event in andy.execute_policy_action():
                 amount_to_trade_base -= event.base_amount
         else:
-            amount_to_trade_base = trade_in_direction(go_long, rob, interactive_hyperdrive, share_price, amount_to_trade_base)
-        fixed_rates.append(interactive_hyperdrive.hyperdrive_interface.calc_fixed_rate())
+            amount_to_trade_base = trade_in_direction(
+                go_long, rob, interactive_hyperdrive, share_price, amount_to_trade_base
+            )
+        fixed_rates.append(interactive_hyperdrive.interface.calc_fixed_rate())
         print(f"day {day} secs/day={(time.time() - start_time)/(day+1):,.1f}", end="\r", flush=True)
         trades_today += 1
         if RUNNING_WANDB:
@@ -352,14 +354,17 @@ print(f"experiment finished in {(time.time() - start_time):,.2f} seconds")
 pool_state = interactive_hyperdrive.get_pool_state()
 pool_state.to_parquet("pool_state.parquet")
 effective_shares = pool_state.share_reserves.iloc[-1] + pool_state.share_adjustment.iloc[-1]
-print(f"pool reserves are: bonds={pool_state.bond_reserves.iloc[-1]:,.0f} effective_shares={effective_shares:,.0f} rate={pool_state.fixed_rate.iloc[-1]:7.2%}")
+print(
+    f"pool reserves are: bonds={pool_state.bond_reserves.iloc[-1]:,.0f} effective_shares={effective_shares:,.0f} rate={pool_state.fixed_rate.iloc[-1]:7.2%}"
+)
 
 # %%
 # view wallets before closing
 current_wallet = deepcopy(interactive_hyperdrive.get_current_wallet())
 if RUNNING_INTERACTIVE:
     display(
-        current_wallet.loc[current_wallet.position != 0,exp.display_cols].style.format(
+        current_wallet.loc[current_wallet.position != 0, exp.display_cols]
+        .style.format(
             subset=[
                 col
                 for col in current_wallet.columns
@@ -402,7 +407,7 @@ initial_fixed_rate = float(pool_info.fixed_rate.iloc[0])
 ending_fixed_rate = float(pool_info.fixed_rate.iloc[-1])
 print(f"starting fixed rate is {initial_fixed_rate:7.2%}")
 print(f"  ending fixed rate is {ending_fixed_rate:7.2%}")
-governance_fees = float(interactive_hyperdrive.hyperdrive_interface.get_gov_fees_accrued(block_number=None))
+governance_fees = float(interactive_hyperdrive.interface.get_gov_fees_accrued(block_number=None))
 current_wallet = deepcopy(interactive_hyperdrive.get_current_wallet())
 
 wallet_positions = deepcopy(interactive_hyperdrive.get_wallet_positions())
@@ -434,33 +439,58 @@ for user in current_wallet.username.unique():
         # add withdrawal shares valued at the latest share price
         withdrawal_shares = current_wallet.loc[user_idx & ws_index, ["position"]].sum().values[0]
         current_wallet.loc[user_idx & weth_index, ["position"]] += withdrawal_shares * share_price
-        print(f"adding pnl for {user} holding {withdrawal_shares:,.0f} withdrawal shares valued at share_price={share_price:,.7f} each")
+        print(
+            f"adding pnl for {user} holding {withdrawal_shares:,.0f} withdrawal shares valued at share_price={share_price:,.7f} each"
+        )
     if user not in ["governance", "total", "share price"]:
         # simple PNL based on starting WETH balance
-        current_wallet.loc[user_idx & weth_index, ["pnl"]] = current_wallet.loc[user_idx & weth_index, ["position"]].values - Decimal(str(starting_base[user]))
+        current_wallet.loc[user_idx & weth_index, ["pnl"]] = current_wallet.loc[
+            user_idx & weth_index, ["position"]
+        ].values - Decimal(str(starting_base[user]))
 # add HPR
-mask = current_wallet['pnl'].notna() & current_wallet['position'].notna()
-current_wallet.loc[mask, 'hpr'] = current_wallet.loc[mask, 'pnl'] / (current_wallet.loc[mask, 'position'] - current_wallet.loc[mask, 'pnl'])
+mask = current_wallet["pnl"].notna() & current_wallet["position"].notna()
+current_wallet.loc[mask, "hpr"] = current_wallet.loc[mask, "pnl"] / (
+    current_wallet.loc[mask, "position"] - current_wallet.loc[mask, "pnl"]
+)
 
 # calculate average spend if it's turned on
 if exp.use_average_spend is True:
-    wallet_positions_by_time = (wallet_positions.loc[wallet_positions.token_type == "WETH", :].pivot(index="timestamp",columns="username",values="position").reset_index())
-    wallet_positions_by_time.loc[:, ["rob"]] = (wallet_positions_by_time["rob"].max() - wallet_positions_by_time["rob"]).fillna(0)
-    wallet_positions_by_time["timestamp_delta"] = wallet_positions_by_time["timestamp"].diff().dt.total_seconds().fillna(0)
+    wallet_positions_by_time = (
+        wallet_positions.loc[wallet_positions.token_type == "WETH", :]
+        .pivot(index="timestamp", columns="username", values="position")
+        .reset_index()
+    )
+    wallet_positions_by_time.loc[:, ["rob"]] = (
+        wallet_positions_by_time["rob"].max() - wallet_positions_by_time["rob"]
+    ).fillna(0)
+    wallet_positions_by_time["timestamp_delta"] = (
+        wallet_positions_by_time["timestamp"].diff().dt.total_seconds().fillna(0)
+    )
     average_by_time = np.average(wallet_positions_by_time["rob"], weights=wallet_positions_by_time["timestamp_delta"])
     # adjust the random trader's position to be their average spend
     idx = weth_index & (current_wallet.username == "rob")
     current_wallet.loc[idx, ["position"]] = average_by_time  # type: ignore
-    current_wallet.loc[idx, ["hpr"]] = (current_wallet.loc[idx, ["pnl"]].astype("float").iloc[0].values / current_wallet.loc[idx, ["position"]].astype("float").iloc[0].values)  # type: ignore
+    current_wallet.loc[idx, ["hpr"]] = current_wallet.loc[idx, ["pnl"]].astype("float").iloc[0].values / current_wallet.loc[idx, ["position"]].astype("float").iloc[0].values  # type: ignore
 
-def new_row(user, position, pnl, hpr = None):  # pylint: disable=redefined-outer-name
+
+def new_row(user, position, pnl, hpr=None):  # pylint: disable=redefined-outer-name
     _new_row = current_wallet.iloc[len(current_wallet) - 1].copy()
     _new_row["username"], _new_row["position"], _new_row["pnl"], _new_row["token_type"] = user, position, pnl, "WETH"
     _new_row["hpr"] = hpr if hpr is not None else _new_row["pnl"] / (Decimal(_new_row["position"]) - _new_row["pnl"])
     return _new_row.to_frame().T
+
+
 governance_row = new_row("governance", governance_fees, governance_fees, 0)
-total_row = new_row("total", float(current_wallet["position"].values.sum()), current_wallet.loc[current_wallet.token_type.values == "WETH", ["pnl"]].values.sum())
-share_price_row = new_row("share price", pool_info.lp_share_price.iloc[-1] * Decimal(1e7), pool_info.lp_share_price.iloc[-1] * Decimal(1e7) - pool_info.lp_share_price.iloc[0] * Decimal(1e7))
+total_row = new_row(
+    "total",
+    float(current_wallet["position"].values.sum()),
+    current_wallet.loc[current_wallet.token_type.values == "WETH", ["pnl"]].values.sum(),
+)
+share_price_row = new_row(
+    "share price",
+    pool_info.lp_share_price.iloc[-1] * Decimal(1e7),
+    pool_info.lp_share_price.iloc[-1] * Decimal(1e7) - pool_info.lp_share_price.iloc[0] * Decimal(1e7),
+)
 current_wallet = pd.concat([current_wallet, governance_row, total_row, share_price_row], ignore_index=True)
 
 # re-index
@@ -472,13 +502,13 @@ current_wallet.position = current_wallet.position.astype(float)
 current_wallet.pnl = current_wallet.pnl.astype(float)
 # add APR
 current_wallet["apr"] = Decimal(np.nan)
-current_wallet.loc[weth_index & not_inf, ["apr"]] = current_wallet.loc[weth_index & not_inf, ["hpr"]].values * Decimal(apr_factor)
+current_wallet.loc[weth_index & not_inf, ["apr"]] = current_wallet.loc[weth_index & not_inf, ["hpr"]].values * Decimal(
+    apr_factor
+)
 
 results1 = current_wallet.loc[non_weth_index, exp.display_cols]
 results2 = current_wallet.loc[weth_index, exp.display_cols_with_hpr]
-experiment_stats = {
-    "total_volume": float(total_volume)
-}
+experiment_stats = {"total_volume": float(total_volume)}
 
 # log results
 if RUNNING_WANDB:
@@ -507,10 +537,17 @@ else:
     print("no material non-WETH positions")
 print("WETH positions:")
 if RUNNING_INTERACTIVE:
-    display(results2.style.format(
-        subset=[col for col in results2.columns if results2.dtypes[col] == "float64" and col not in ["hpr", "apr"]],
-        formatter="{:" + exp.float_fmt + "}",
-    ).hide(axis="index").format(subset=["hpr", "apr"],formatter="{:.2%}",))
+    display(
+        results2.style.format(
+            subset=[col for col in results2.columns if results2.dtypes[col] == "float64" and col not in ["hpr", "apr"]],
+            formatter="{:" + exp.float_fmt + "}",
+        )
+        .hide(axis="index")
+        .format(
+            subset=["hpr", "apr"],
+            formatter="{:.2%}",
+        )
+    )
 else:
     print(results2)
 
@@ -521,9 +558,10 @@ pool_info.variable_rate = pool_info.variable_rate.astype(float)
 # plot rates
 if RUNNING_INTERACTIVE:
     from matplotlib import ticker
+
     pool_info.plot(
         x="block_number",
-        y=["fixed_rate","variable_rate"],
+        y=["fixed_rate", "variable_rate"],
     )
     plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
     plt.show()
@@ -548,8 +586,8 @@ wallet_deltas = get_wallet_deltas(session=interactive_hyperdrive.db_session)
 # current_wallet = deepcopy(interactive_hyperdrive.get_current_wallet())
 # pnl = calc_closeout_pnl(
 #     current_wallet=current_wallet,
-#     hyperdrive_contract=interactive_hyperdrive.hyperdrive_interface.hyperdrive_contract,
-#     hyperdrive_interface=interactive_hyperdrive.hyperdrive_interface,
+#     hyperdrive_contract=interactive_hyperdrive.interface.hyperdrive_contract,
+#     hyperdrive_interface=interactive_hyperdrive.interface,
 # )
 
 # %%
