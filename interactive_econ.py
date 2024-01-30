@@ -90,21 +90,21 @@ class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-
     experiment_id: int = 0
     db_port: int = 5_433
     chain_port: int = 10_000
-    daily_volume_percentage_of_liquidity: float = 0.01  # 1%
-    term_days: int = 20
+    daily_volume_percentage_of_liquidity: float = 0.05  # 1%
+    term_days: int = 365
     minimum_trade_days: float = 0  # minimum number of days to keep a trade open
     float_fmt: str = ",.0f"
     display_cols: list[str] = field(default_factory=lambda: cols + ["base_token_type", "maturity_time"])
     display_cols_with_hpr: list[str] = field(default_factory=lambda: cols + ["hpr", "apr"])
     amount_of_liquidity: int = 10_000_000
     max_trades_per_day: int = 10
-    fixed_rate: FixedPoint = FixedPoint(0.035)  # 5.0%
-    curve_fee: FixedPoint = FixedPoint("0.01")  # 1%, 10% default
-    flat_fee: FixedPoint = FixedPoint("0.0001")  # 1bps, 5bps default
-    governance_fee: FixedPoint = FixedPoint("0.1")  # 10%, 15% default
+    fixed_rate: FixedPoint = FixedPoint(0.045)
+    curve_fee: FixedPoint = FixedPoint("0")  # 10% default
+    flat_fee: FixedPoint = FixedPoint("0")  # 5bps default
+    governance_fee: FixedPoint = FixedPoint("0")  # 15% default
     randseed: int = 0
     term_seconds: int = 0
-    variable_rate: FixedPoint = FixedPoint(0.035)
+    variable_rate: FixedPoint = FixedPoint(0.045)
     calc_pnl: bool = False
     use_average_spend: bool = False
 
@@ -179,7 +179,7 @@ config = InteractiveHyperdrive.Config(
     position_duration=exp.term_seconds,
     checkpoint_duration=60 * 60 * 24,  # 1 day
     initial_liquidity=FixedPoint(20),
-    initial_fixed_rate=exp.fixed_rate,
+    initial_fixed_apr=exp.fixed_rate,
     initial_variable_rate=exp.variable_rate,
     curve_fee=exp.curve_fee,
     flat_fee=exp.flat_fee,
@@ -321,7 +321,7 @@ for day in range(exp.term_days):
     trades_today = 0
     while amount_to_trade_base > MINIMUM_TRANSACTION_AMOUNT:
         pool_state = interactive_hyperdrive.hyperdrive_interface.current_pool_state
-        share_price = pool_state.pool_info.share_price
+        share_price = pool_state.pool_info.lp_share_price
 
         # decide direction to trade
         # go_long = rng.random() < 0.5  # go long 50% of the time
@@ -382,6 +382,12 @@ for event in events:
 event_list = andy.execute_policy_action()
 for event in event_list:
     print(event)
+# move forward a year to let the arbitrage expire profitably
+chain.advance_time(datetime.timedelta(days=365), create_checkpoints=False)
+# let Andy close their position
+events = andy.liquidate()
+for event in events:
+    print(event)
 # Now rate is where we want it to be
 if larry.wallet.lp_tokens > FixedPoint(0):
     larry.remove_liquidity(larry.wallet.lp_tokens)
@@ -413,10 +419,10 @@ time_passed_days = (pool_info.timestamp.iloc[-1] - pool_info.timestamp.iloc[0]).
 print(f"time passed = {time_passed_days:.2f} days")
 apr_factor = 365 / time_passed_days
 print(f"  to scale APR from HPR we multiply by {apr_factor:,.0f} (365/{time_passed_days:.2f})")
-print(f"  share price went from {pool_info.share_price.iloc[0]:.4f} to {pool_info.share_price.iloc[-1]:.7f}")
+print(f"  share price went from {pool_info.lp_share_price.iloc[0]:.4f} to {pool_info.lp_share_price.iloc[-1]:.7f}")
 
 # do return calculations
-share_price = pool_info.share_price.iloc[-1]
+share_price = pool_info.lp_share_price.iloc[-1]
 non_weth_index = (current_wallet.token_type != "WETH") & (current_wallet.position > float(MINIMUM_TRANSACTION_AMOUNT))
 weth_index = current_wallet.token_type == "WETH"
 ws_index = current_wallet.token_type == "WITHDRAWAL_SHARE"
@@ -454,7 +460,7 @@ def new_row(user, position, pnl, hpr = None):  # pylint: disable=redefined-outer
     return _new_row.to_frame().T
 governance_row = new_row("governance", governance_fees, governance_fees, 0)
 total_row = new_row("total", float(current_wallet["position"].values.sum()), current_wallet.loc[current_wallet.token_type.values == "WETH", ["pnl"]].values.sum())
-share_price_row = new_row("share price", pool_info.share_price.iloc[-1] * Decimal(1e7), pool_info.share_price.iloc[-1] * Decimal(1e7) - pool_info.share_price.iloc[0] * Decimal(1e7))
+share_price_row = new_row("share price", pool_info.lp_share_price.iloc[-1] * Decimal(1e7), pool_info.lp_share_price.iloc[-1] * Decimal(1e7) - pool_info.lp_share_price.iloc[0] * Decimal(1e7))
 current_wallet = pd.concat([current_wallet, governance_row, total_row, share_price_row], ignore_index=True)
 
 # re-index
