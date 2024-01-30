@@ -1,4 +1,6 @@
 -e git+https://github.com/delvtech/agent0.git@main#subdirectory=lib/agent0&egg=agent0[with-dependencies]
 --find-links=".venv/src/agent0/packages/hyperdrivepy"
 hyperdrivepy
+statsmodels
 rollbar
+wandb
