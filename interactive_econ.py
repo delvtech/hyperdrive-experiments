@@ -14,12 +14,10 @@ import datetime
 import json
 import logging
 import os
-import sys
 import time
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from decimal import Decimal
-from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -32,6 +30,7 @@ from matplotlib import pyplot as plt  # pylint: disable=import-error,no-name-in-
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 from agent0.hyperdrive.interactive.interactive_hyperdrive_agent import InteractiveHyperdriveAgent
 from agent0.hyperdrive.policies import Zoo
+from utils import get_max, running_interactive, running_wandb, safe_cast  # pylint: disable=no-name-in-module
 
 # pylint: disable=bare-except
 # ruff: noqa: A001 (allow shadowing a python builtin)
@@ -50,21 +49,6 @@ from agent0.hyperdrive.policies import Zoo
 
 # %%
 # check what environment we're running in
-def running_interactive():
-    try:
-        from IPython.core.getipython import get_ipython  # pylint: disable=import-outside-toplevel
-
-        return bool("ipykernel" in sys.modules and get_ipython())
-    except ImportError:
-        return False
-
-
-def running_wandb():
-    # Check for a specific wandb environment variable
-    # For example, 'WANDB_RUN_ID' is set by wandb during a run
-    return "WANDB_RUN_ID" in os.environ
-
-
 if RUNNING_INTERACTIVE := running_interactive():
     from IPython.display import display  # pylint: disable=import-outside-toplevel
 
@@ -79,18 +63,16 @@ if RUNNING_WANDB := running_wandb():
 else:
     print("Not running inside a wandb environment.")
 
-
 # %%
 # config
 cols = ["block_number", "username", "position", "pnl"]
-
 
 @dataclass
 class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-class-docstring
     experiment_id: int = 0
     db_port: int = 5_433
     chain_port: int = 10_000
-    daily_volume_percentage_of_liquidity: float = 0.05  # 1%
+    daily_volume_percentage_of_liquidity: float = 0.05
     term_days: int = 365
     minimum_trade_days: float = 0  # minimum number of days to keep a trade open
     float_fmt: str = ",.0f"
@@ -99,9 +81,9 @@ class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-
     amount_of_liquidity: int = 10_000_000
     max_trades_per_day: int = 10
     fixed_rate: FixedPoint = FixedPoint(0.045)
-    curve_fee: FixedPoint = FixedPoint("0")  # 10% default
-    flat_fee: FixedPoint = FixedPoint("0")  # 5bps default
-    governance_fee: FixedPoint = FixedPoint("0")  # 15% default
+    curve_fee: FixedPoint = FixedPoint("0.005")
+    flat_fee: FixedPoint = FixedPoint("0.0005")
+    governance_fee: FixedPoint = FixedPoint("0")
     randseed: int = 0
     term_seconds: int = 0
     variable_rate: FixedPoint = FixedPoint(0.045)
@@ -111,33 +93,8 @@ class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-
     def calculate_values(self):
         self.term_seconds: int = 60 * 60 * 24 * self.term_days
 
-
-def safe_cast(_type: type, _value: str, debug: bool = False):
-    if debug:
-        print(f"trying to cast {_value} to {_type}")
-        print(f"_type is {type(_type)} and _value is {type(_value)}")
-    return_value = _value
-    if debug:
-        print(f"_type == int: {_type == 'int'}")
-    if _type == "int":
-        return_value = int(float(_value))
-    if debug:
-        print(f"_type == float: {_type == 'float'}")
-    if _type == "float":
-        return_value = float(_value)
-    if debug:
-        print(f"_type == bool: {_type == 'bool'}")
-    if _type == "bool":
-        return_value = _value.lower() in {"true", "1", "yes"}
-    if debug:
-        print(f"_type == FixedPoint: {_type == 'FixedPoint'}")
-    if _type == "FixedPoint":
-        return_value = FixedPoint(_value)
-    if debug:
-        print(f"  result: {_value} of {type(return_value).__name__}")
-    return return_value
-
-
+# %%
+# config
 exp = ExperimentConfig()
 field_names = [f.name for f in fields(exp)]
 print("=== CONFIG ===")
@@ -220,50 +177,22 @@ for event in event_list:
 
 # %%
 # Random Rob does a buncha trades 🤪
-Max = NamedTuple("Max", [("base", FixedPoint), ("bonds", FixedPoint)])
-GetMax = NamedTuple("GetMax", [("long", Max), ("short", Max)])
-
-
-def get_max(
-    _interactive_hyperdrive: InteractiveHyperdrive,
-    _share_price: FixedPoint,
-    _current_base: FixedPoint,
-) -> GetMax:
-    """Get max trade sizes.
-
-    Returns
-    -------
-    GetMax
-        A NamedTuple containing the max long in base, max long in bonds, max short in bonds, and max short in base.
-    """
-    max_long_base = _interactive_hyperdrive.interface.calc_max_long(budget=_current_base)
-    max_long_bonds = _interactive_hyperdrive.interface.calc_bonds_out_given_shares_in_down(max_long_base / _share_price)
-    max_short_bonds = _interactive_hyperdrive.interface.calc_max_short(budget=_current_base)
-    max_short_shares = _interactive_hyperdrive.interface.calc_shares_out_given_bonds_in_down(max_short_bonds)
-    max_short_base = max_short_shares * _share_price
-    return GetMax(
-        Max(max_long_base, max_long_bonds),
-        Max(max_short_base, max_short_bonds),
-    )
-
-
 def trade_in_direction(
     go_long: bool,
     agent: InteractiveHyperdriveAgent,
     _interactive_hyperdrive: InteractiveHyperdrive,
     _share_price: FixedPoint,
+    _spot_price: FixedPoint,
+    _current_block_time: int,
     _amount_to_trade_base: FixedPoint,
 ):
     max = None
     event = None
-    pool_state = _interactive_hyperdrive.interface.current_pool_state
-    spot_price = _interactive_hyperdrive.interface.calc_spot_price(pool_state)
-    current_block_time = pool_state.block_time
     # execute the trade in the chosen direction
     if go_long:
         if len(agent.wallet.shorts) > 0:  # check if we have shorts, and close them if we do
             for maturity_time, short in agent.wallet.shorts.copy().items():
-                days_passed = (short.maturity_time - current_block_time) // 60 // 60 // 24
+                days_passed = (short.maturity_time - _current_block_time) // 60 // 60 // 24
                 if days_passed >= exp.minimum_trade_days:
                     max = get_max(_interactive_hyperdrive, _share_price, agent.wallet.balance.amount)
                     amount_to_trade_bonds = _interactive_hyperdrive.interface.calc_bonds_out_given_shares_in_down(
@@ -272,7 +201,7 @@ def trade_in_direction(
                     trade_size_bonds = min(amount_to_trade_bonds, short.balance, max.long.bonds)
                     if trade_size_bonds > MINIMUM_TRANSACTION_AMOUNT:
                         event = agent.close_short(maturity_time, trade_size_bonds)
-                        _amount_to_trade_base -= event.bond_amount * spot_price
+                        _amount_to_trade_base -= event.bond_amount * _spot_price
                     if _amount_to_trade_base <= 0:
                         break  # stop looping across shorts if we've traded enough
                 else:
@@ -286,7 +215,7 @@ def trade_in_direction(
     else:
         if len(agent.wallet.longs) > 0:  # check if we have longs, and close them if we do
             for maturity_time, long in agent.wallet.longs.copy().items():
-                days_passed = (long.maturity_time - current_block_time) // 60 // 60 // 24
+                days_passed = (long.maturity_time - _current_block_time) // 60 // 60 // 24
                 if days_passed >= exp.minimum_trade_days:
                     max = get_max(_interactive_hyperdrive, _share_price, agent.wallet.balance.amount)
                     amount_to_trade_bonds = _interactive_hyperdrive.interface.calc_bonds_out_given_shares_in_down(
@@ -308,7 +237,7 @@ def trade_in_direction(
             trade_size_bonds = min(amount_to_trade_bonds, max.short.bonds)
             if trade_size_bonds > MINIMUM_TRANSACTION_AMOUNT:
                 event = agent.open_short(trade_size_bonds)
-                _amount_to_trade_base -= event.bond_amount * spot_price
+                _amount_to_trade_base -= event.bond_amount * _spot_price
     return _amount_to_trade_base
 
 
@@ -322,6 +251,8 @@ for day in range(exp.term_days):
     while amount_to_trade_base > MINIMUM_TRANSACTION_AMOUNT:
         pool_state = interactive_hyperdrive.interface.current_pool_state
         share_price = pool_state.pool_info.lp_share_price
+        spot_price = interactive_hyperdrive.interface.calc_spot_price(pool_state)
+        current_block_time: int = pool_state.block_time
 
         # decide direction to trade
         # go_long = rng.random() < 0.5  # go long 50% of the time
@@ -331,10 +262,10 @@ for day in range(exp.term_days):
         if rng.random() < arbitrageur_chance:
             # go_long = interactive_hyperdrive.interface.calc_fixed_rate() > interactive_hyperdrive.interface.get_variable_rate()
             for event in andy.execute_policy_action():
-                amount_to_trade_base -= event.base_amount
+                amount_to_trade_base -= event.bond_amount * spot_price
         else:
             amount_to_trade_base = trade_in_direction(
-                go_long, rob, interactive_hyperdrive, share_price, amount_to_trade_base
+                go_long, rob, interactive_hyperdrive, share_price, spot_price, current_block_time, amount_to_trade_base
             )
         fixed_rates.append(interactive_hyperdrive.interface.calc_fixed_rate())
         print(f"day {day} secs/day={(time.time() - start_time)/(day+1):,.1f}", end="\r", flush=True)
@@ -396,9 +327,6 @@ for event in events:
 # Now rate is where we want it to be
 if larry.wallet.lp_tokens > FixedPoint(0):
     larry.remove_liquidity(larry.wallet.lp_tokens)
-# events = andy.liquidate()
-# for event in events:
-#     print(event)
 
 # %%
 # conclude
