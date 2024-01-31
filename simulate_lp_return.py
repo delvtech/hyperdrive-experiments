@@ -1,11 +1,13 @@
 """Simulate an LP return.
 
-
 We simulate an LP position in a pool with random trades that are profitable half the time.
 The average daily trading volume is 10% of the total pool liquidity.
 The variable rate is chosen to have an average of 4.5% return, about equal to 2023 staking returns.
-LPs backing trades can result in negative returns, which is mitigated by profits from the yield source and fees.
+
+Goal: Demonstrate that LPs backing trades can result in negative returns,
+which is mitigated by profits from the yield source and fees.
 """
+# %%
 from __future__ import annotations
 
 import time
@@ -15,10 +17,12 @@ import numpy as np
 from fixedpointmath import FixedPoint
 
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
-from agent0.hyperdrive.policies.zoo import Random
 from agent0.hyperdrive.state import HyperdriveActionType
 
+start_time = time.time()
 
+
+# %%
 ## Experiment settings
 @dataclass
 class ExperimentConfig:
@@ -28,7 +32,7 @@ class ExperimentConfig:
     checkpoint_duration: int = 60 * 60 * 24 * 7  # 1 week
     initial_liquidity: FixedPoint(2 * 10**8)
     # trading amounts
-    daily_volume_percentage_of_liquidity: float = 0.05
+    daily_volume_percentage_of_liquidity: float = 0.10
     opens_per_day: int = 6  # how often to open a trade
     minimum_trade_hold_days: float = 1  # minimum number of days to keep a trade open
     agent_budget: FixedPoint = FixedPoint(10_000_000)
@@ -44,6 +48,7 @@ class ExperimentConfig:
     randseed: int = 0
 
 
+# %%
 ## Interactive Hyperdrive config has a subset of experiment config
 exp = ExperimentConfig()
 hyperdrive_config = InteractiveHyperdrive.Config(
@@ -58,21 +63,23 @@ hyperdrive_config = InteractiveHyperdrive.Config(
     calc_pnl=False,
 )
 
+# %%
 ## Initialize primary objects
 rng = np.random.default_rng(seed=exp.randseed)
 chain = LocalChain(LocalChain.Config(db_port=5_433, chain_port=10_000))
 interactive_hyperdrive = InteractiveHyperdrive(hyperdrive_config, chain)
 
+# %%
 ## Initialize agents
 deployer_privkey = chain.get_deployer_account_private_key()
 larry = interactive_hyperdrive.init_agent(base=exp.agent_budget, name="larry", private_key=deployer_privkey)
 rob = interactive_hyperdrive.init_agent(base=exp.agent_budget, name="rob")
 
-start_time = time.time()
-
+# %%
 # Trades are randomly long or short; trade amounts are fixed
 current_trading_volume = 0
 base_amount_per_open = exp.initial_liquidity * exp.daily_volume_percentage_of_liquidity / exp.opens_per_day
+lp_present_value = []
 for day in range(exp.experiment_days):
     # Open a long or short trade for a predetermined amount
     for _ in range(exp.opens_per_day):
@@ -86,6 +93,8 @@ for day in range(exp.experiment_days):
                     amount_in=base_amount_per_open / pool_state.pool_info.vault_share_price, pool_state=pool_state
                 )
                 open_event = rob.open_short(bonds=amount_to_trade_bonds)
+        # update present value after a trade
+        lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
     # Optionally close trades
     position_duration_days = int(interactive_hyperdrive.interface.pool_config.position_duration / 60 / 60 / 24)
     close_events = []
@@ -99,6 +108,8 @@ for day in range(exp.experiment_days):
             gonna_close = rng.choice([True, False], size=1)
             if gonna_close or days_passed > position_duration_days:
                 close_events.append(rob.close_long(long.maturity_time, long.balance))
+                # update present value after a trade
+                lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
     for short in rob.wallet.shorts.values():
         mint_time = short.maturity_time - interactive_hyperdrive.interface.pool_config.position_duration
         current_block_time = interactive_hyperdrive.interface.get_block_timestamp(
@@ -109,3 +120,18 @@ for day in range(exp.experiment_days):
             gonna_close = rng.choice([True, False], size=1)
             if gonna_close or days_passed > position_duration_days:
                 close_events.append(rob.close_short(short.maturity_time, short.balance))
+                # update present value after a trade
+                lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
+# Close everything up in the end
+rob.liquidate(randomize=True)
+# update present value after the remaining trades
+lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
+
+# %%
+## Run analysis
+# total lp profits (lp present value) per day
+# vault share price per day
+# fees per day
+# profit from backing trades per day
+#
+pool_state = interactive_hyperdrive.get_pool_state().to_parquet("pool_state.parquet")
