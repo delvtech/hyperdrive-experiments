@@ -21,79 +21,38 @@ import wandb
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 from agent0.hyperdrive.state import HyperdriveActionType
 
-# %%
-wandb.login()
 
-# %%
-experiment_name = "some name"
-experiment_notes = "Running sweeps to find best fees"
-experiment_tags = ["sweeps", "fees"]
-
-experiment_params = {"fixed_rate": 0.05, "curve_fee": 0.01}
-
-## Initialize sweep config
-sweep_config = {"method": "random"}
-
-## Set goals
-metric = {"name": "pnl", "goal": "maximize"}
-sweep_config["metric"] = metric
-
-## what to sweep over
-grid_parameters = {"fixed_rate": {"values": [0, 0.01, 0.1]}}
-
-random_parameters = {
-    "variable_rate": {
-        "distribution": "uniform",
-        "min": 0.0,
-        "max": 0.05,
-    },
-    "curve_fee": {
-        "distribution": "normal",
-        "mu": 0.01,
-        "sigma": 0.001,
-    },
-}
-
-constant_parameters = {"position_duration": {"value": 60 * 60 * 24 * 365}}
-
-parameters_dict = {}
-parameters_dict.update(grid_parameters)
-parameters_dict.update(random_parameters)
-parameters_dict.update(constant_parameters)
-
-sweep_config["parameters"] = parameters_dict
-
-sweep_id = wandb.sweep(sweep_config, project=experiment_name)
-
-
-def run_experiment(config=None):
-    with wandb.init(config=config, project=experiment_name):
-        config = wandb.config
+def run_lp_pnl_experiment(config=None):
+    experiment_notes = "Compute lp PNL given fees."
+    experiment_tags = ["fees", "lp pnl"]
+    with wandb.init(config=config, notes=experiment_notes, tags=experiment_tags):
         start_time = time.time()
+
+        config = wandb.config
 
         ## Experiment settings
         @dataclass
         class ExperimentConfig:
             # experiment times
-            experiment_days: int = 60 * 60 * 24 * 30  # 1 month
-            position_duration: int = config["position_duration"]
-            checkpoint_duration: int = 60 * 60 * 24 * 7  # 1 week
-            initial_liquidity: FixedPoint(2 * 10**8)
+            experiment_days: int = config.get("experiment_days", 60 * 60 * 24 * 182)  # 6 months
+            position_duration: int = config.get("position_duration", 60 * 60 * 24 * 30)  # 1 month
+            checkpoint_duration: int = config.get("checkpoint_duration", 60 * 60 * 24 * 7)  # 1 week
+            initial_liquidity: FixedPoint = FixedPoint(config.get("initial_liquidity", 2 * 10**8))
             # trading amounts
-            daily_volume_percentage_of_liquidity: float = 0.10
-            opens_per_day: int = 6  # how often to open a trade
-            minimum_trade_hold_days: float = 1  # minimum number of days to keep a trade open
-            agent_budget: FixedPoint = FixedPoint(10_000_000)
-            # starting fixed rate equal to variable should encourage net 0 profit for rob
-            variable_rate: FixedPoint = config["variable_rate"]
-            fixed_rate: FixedPoint = config["fixed_rate"]
+            daily_volume_percentage_of_liquidity: float = config.get("daily_volume_percentage_of_liquidity", 0.10)
+            opens_per_day: int = config.get("opens_per_day", 6)  # how often to open a trade
+            minimum_trade_hold_days: int = config.get("minimum_trade_hold_days", 1)
+            agent_budget: FixedPoint = FixedPoint(config.get("agent_budget", 10_000_000))
+            # rates
+            variable_rate: FixedPoint = FixedPoint(str(config.get("variable_rate", 0.045)))
+            fixed_rate: FixedPoint = FixedPoint(str(config.get("fixed_rate", 0.045)))
             # fees
-            curve_fee: FixedPoint = config["curve_fee"]
-            flat_fee: FixedPoint = FixedPoint("0")
-            governance_fee: FixedPoint = FixedPoint("0")
+            curve_fee: FixedPoint = FixedPoint(str(config.get("curve_fee", 0.0)))
+            flat_fee: FixedPoint = FixedPoint(str(config.get("flat_fee", 0.0)))
+            governance_fee: FixedPoint = FixedPoint(str(config.get("governance_fee", 0.0)))
             # misc extra
-            experiment_id: int = 0
-            randseed: int = 0
+            experiment_id: int = config.get("id", 0)
+            randseed: int = 1234
 
         exp = ExperimentConfig()
         log_dict = deepcopy(config)
@@ -124,23 +83,23 @@ def run_experiment(config=None):
         rob = interactive_hyperdrive.init_agent(base=exp.agent_budget, name="rob")
 
         # Trades are randomly long or short; trade amounts are fixed
-        current_trading_volume = 0
         base_amount_per_open = exp.initial_liquidity * exp.daily_volume_percentage_of_liquidity / exp.opens_per_day
         lp_present_value = []
         for day in range(exp.experiment_days):
             # Open a long or short trade for a predetermined amount
+            open_events = []
             for _ in range(exp.opens_per_day):
                 trade_type = rng.choice([HyperdriveActionType.OPEN_LONG, HyperdriveActionType.OPEN_SHORT], size=1)
                 match trade_type:
                     case HyperdriveActionType.OPEN_LONG:
-                        open_event = rob.open_long(base=base_amount_per_open)
+                        open_events.append(rob.open_long(base=base_amount_per_open))
                     case HyperdriveActionType.OPEN_SHORT:
                         pool_state = interactive_hyperdrive.interface.current_pool_state
                         amount_to_trade_bonds = interactive_hyperdrive.interface.calc_bonds_out_given_shares_in_down(
                             amount_in=base_amount_per_open / pool_state.pool_info.vault_share_price,
                             pool_state=pool_state,
                         )
-                        open_event = rob.open_short(bonds=amount_to_trade_bonds)
+                        open_events.append(rob.open_short(bonds=amount_to_trade_bonds))
                 # update present value after a trade
                 lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
             # Optionally close trades
@@ -171,7 +130,6 @@ def run_experiment(config=None):
                         # update present value after a trade
                         lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
             wandb.log({"pnl": lp_present_value[-1], "day": day})
-            wandb.log({"something_else": lp_present_value[-1]})
         # Close everything up in the end
         rob.liquidate(randomize=True)
         # update present value after the remaining trades
@@ -188,7 +146,7 @@ def run_experiment(config=None):
         wandb.log({"exp_time": end_time - start_time})
 
 
-wandb.agent(sweep_id, run_experiment, count=500)
+wandb.agent(sweep_id, run_lp_pnl_experiment, count=500)
 
 wandb.finish()
 # %%
