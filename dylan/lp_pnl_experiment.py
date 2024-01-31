@@ -22,13 +22,13 @@ from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 from agent0.hyperdrive.state import HyperdriveActionType
 
 
-def run_lp_pnl_experiment(config=None):
+def lp_pnl_experiment(config=None):
     experiment_notes = "Compute lp PNL given fees."
     experiment_tags = ["fees", "lp pnl"]
-    with wandb.init(config=config, notes=experiment_notes, tags=experiment_tags):
+    with wandb.init(config=config, notes=experiment_notes, tags=experiment_tags) as run:
         start_time = time.time()
 
-        config = wandb.config
+        config = run.config
 
         ## Experiment settings
         @dataclass
@@ -57,7 +57,7 @@ def run_lp_pnl_experiment(config=None):
         exp = ExperimentConfig()
         log_dict = deepcopy(config)
         log_dict.update(asdict(exp))
-        wandb.log(log_dict)
+        run.log(log_dict)
 
         ## Interactive Hyperdrive config has a subset of experiment config
         hyperdrive_config = InteractiveHyperdrive.Config(
@@ -129,7 +129,7 @@ def run_lp_pnl_experiment(config=None):
                         close_events.append(rob.close_short(short.maturity_time, short.balance))
                         # update present value after a trade
                         lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
-            wandb.log({"pnl": lp_present_value[-1], "day": day})
+            run.log({"pnl": lp_present_value[-1], "day": day})
         # Close everything up in the end
         rob.liquidate(randomize=True)
         # update present value after the remaining trades
@@ -142,11 +142,15 @@ def run_lp_pnl_experiment(config=None):
         # profit from backing trades per day
         #
         pool_state = interactive_hyperdrive.get_pool_state().to_parquet("pool_state.parquet")
+        state_artifact = wandb.Artifact(
+            "pool-state",
+            type="dataset",
+            description="Final state of the Hyperdrive pool after the experiment was completed",
+            metadata=log_dict,
+        )
+        state_artifact.add(pool_state, "pool-state")
+        wandb.log_artifact(state_artifact)
+
+        ## Log final time
         end_time = time.time()
-        wandb.log({"exp_time": end_time - start_time})
-
-
-wandb.agent(sweep_id, run_lp_pnl_experiment, count=500)
-
-wandb.finish()
-# %%
+        run.log({"exp_time": end_time - start_time})
