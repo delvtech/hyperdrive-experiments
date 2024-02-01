@@ -80,13 +80,13 @@ class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-
     display_cols_with_hpr: list[str] = field(default_factory=lambda: cols + ["hpr", "apr"])
     amount_of_liquidity: int = 10_000_000
     max_trades_per_day: int = 10
-    fixed_rate: FixedPoint = FixedPoint(0.045)
+    fixed_rate: FixedPoint = FixedPoint(0.035)
     curve_fee: FixedPoint = FixedPoint("0.005")
     flat_fee: FixedPoint = FixedPoint("0.0005")
     governance_fee: FixedPoint = FixedPoint("0")
     randseed: int = 0
     term_seconds: int = 0
-    variable_rate: FixedPoint = FixedPoint(0.045)
+    variable_rate: FixedPoint = FixedPoint(0.035)
     calc_pnl: bool = False
     use_average_spend: bool = False
 
@@ -99,7 +99,7 @@ exp = ExperimentConfig()
 field_names = [f.name for f in fields(exp)]
 print("=== CONFIG ===")
 if RUNNING_INTERACTIVE:
-    load_dotenv("./runs/98/parameters.env")  # inspect a specific experiment
+    load_dotenv("./runs/18/parameters.env")  # inspect a specific experiment
     pass  # do nothing
 else:
     # when calling from the commandline, we always load parameters.env
@@ -245,6 +245,7 @@ def trade_in_direction(
 # remove-unnecessary-else, swap-if-else-branches
 fixed_rates = []
 start_time = time.time()
+lp_present_value = []
 for day in range(exp.term_days):
     amount_to_trade_base = FixedPoint(exp.amount_of_liquidity * exp.daily_volume_percentage_of_liquidity)
     trades_today = 0
@@ -253,6 +254,7 @@ for day in range(exp.term_days):
         share_price = pool_state.pool_info.lp_share_price
         spot_price = interactive_hyperdrive.interface.calc_spot_price(pool_state)
         current_block_time: int = pool_state.block_time
+        lp_present_value.append([current_block_time, interactive_hyperdrive.interface.calc_present_value()])
 
         # decide direction to trade
         # go_long = rng.random() < 0.5  # go long 50% of the time
@@ -351,7 +353,7 @@ print(f"  volume/day={exp.daily_volume_percentage_of_liquidity:,.2%} of TVL")
 time_passed_days = (pool_info.timestamp.iloc[-1] - pool_info.timestamp.iloc[0]).total_seconds() / 60 / 60 / 24
 print(f"time passed = {time_passed_days:.2f} days")
 apr_factor = 365 / time_passed_days
-print(f"  to scale APR from HPR we multiply by {apr_factor:,.0f} (365/{time_passed_days:.2f})")
+print(f"  to scale APR from HPR we multiply by {apr_factor:,.2f} (365/{time_passed_days:.2f})")
 print(f"  share price went from {pool_info.lp_share_price.iloc[0]:.4f} to {pool_info.lp_share_price.iloc[-1]:.7f}")
 
 # do return calculations
@@ -495,8 +497,32 @@ if RUNNING_INTERACTIVE:
     plt.show()
 
 # %%
+# get pool config
+pool_config = interactive_hyperdrive.get_pool_config()
+
+# %%
 # get wallet deltas
 wallet_deltas = get_wallet_deltas(session=interactive_hyperdrive.db_session)
+
+# %%
+# return attribution
+timestamps = pool_info.timestamp.unique()
+print(f"we have {len(timestamps):,.0f} unique timestamps")
+long_exposure_shares = pool_info.long_exposure / pool_info.vault_share_price
+idle_shares = (
+    pool_info.share_reserves - long_exposure_shares - pool_config.minimum_share_reserves
+)
+pool_info["idle_capital"] = idle_shares / pool_info.share_reserves
+# pool_info["long_exposure"] = pool_info["long_exposure"].astype(Decimal)
+# pool_info["idle_capital"] = pool_info["idle_capital"].astype(Decimal)
+plot_data = deepcopy(pool_info)
+plot_data["idle_capital"] = plot_data["idle_capital"].astype(float)
+plot_data["long_exposure"] = plot_data["long_exposure"].astype(float)
+plot_data.plot(
+    x="block_number",
+    y="long_exposure",
+);
+# for timestamp in timestamps:
 
 # %%
 # import time

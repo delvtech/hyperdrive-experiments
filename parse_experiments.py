@@ -1,6 +1,7 @@
 """Parse the experiments folder."""
 # %%
 from copy import copy
+from decimal import Decimal
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -13,7 +14,7 @@ from matplotlib import pyplot as plt
 from matplotlib import ticker
 from statsmodels.tools.tools import add_constant
 
-import darkmode_orange
+# import darkmode_orange
 
 FLOAT_FMT = ",.0f"
 short_variable_names = {
@@ -26,7 +27,7 @@ short_variable_names = {
 
 # %%
 # do shit
-EXPERIMENT_FOLDER = Path("runs/")
+EXPERIMENT_FOLDER = Path("runs")
 PARQUET_FILES = ["agg_results1.parquet", "agg_results2.parquet", "rate_paths.parquet"]
 DELETE_PREVIOUS_PARQUET_FILES = True
 
@@ -266,6 +267,7 @@ if matrix_count.max().max() > 1:
 # %%
 # parse variables
 variables_to_check_for_variability = ["CURVE_FEE", "FLAT_FEE", "MINIMUM_TRADE_DAYS", "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"]
+variables_to_check_for_variability = [v for v in variables_to_check_for_variability if v in df2.columns]
 most_variable = ''
 least_variable = ''
 for variable in variables_to_check_for_variability:
@@ -336,6 +338,7 @@ plt.axhline(0.035, color='red', label="Vault variable return", alpha=1, linestyl
 plt.title(f"LP Profitability vs. {short_variable_names[most_variable]}")
 plt.legend()
 plt.show()
+
 
 # %%
 # plot experiment_stats[experiment_id, "total_volume"] vs. "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"

@@ -28,9 +28,9 @@ if not os.path.exists(RUNS_TABLE_FILE):
     # Define your parameters
     parameters = {
         "FIXED_RATE": [0.035],
-        "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY": list(np.arange(0.01, 0.11, 0.01)),
-        "CURVE_FEE": [0.01],
-        "FLAT_FEE": [0.0001],
+        "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY": [0.01] + list(np.arange(0.05, 0.55, 0.05)),
+        "CURVE_FEE": [0.001,0.005,0.01],
+        "FLAT_FEE": [0.0],
         "MAX_TRADES_PER_DAY": [int(10000)],
     }
 
