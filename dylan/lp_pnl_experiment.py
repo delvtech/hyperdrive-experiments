@@ -12,83 +12,68 @@ from __future__ import annotations
 
 import time
 from copy import deepcopy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 
 import numpy as np
-from fixedpointmath import FixedPoint
 
 import wandb
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 from agent0.hyperdrive.state import HyperdriveActionType
 
+from .experiment_config import ExperimentConfig
+
 
 def lp_pnl_experiment(config=None):
+    start_time = time.time()
     experiment_notes = "Compute lp PNL given fees."
     experiment_tags = ["fees", "lp pnl"]
+
     with wandb.init(config=config, notes=experiment_notes, tags=experiment_tags) as run:
-        start_time = time.time()
-
-        config = run.config
-
-        ## Experiment settings
-        @dataclass
-        class ExperimentConfig:
-            # experiment times
-            experiment_days: int = config.get("experiment_days", 60 * 60 * 24 * 182)  # 6 months
-            position_duration: int = config.get("position_duration", 60 * 60 * 24 * 30)  # 1 month
-            checkpoint_duration: int = config.get("checkpoint_duration", 60 * 60 * 24 * 7)  # 1 week
-            initial_liquidity: FixedPoint = FixedPoint(config.get("initial_liquidity", 2 * 10**8))
-            # trading amounts
-            daily_volume_percentage_of_liquidity: float = config.get("daily_volume_percentage_of_liquidity", 0.10)
-            opens_per_day: int = config.get("opens_per_day", 6)  # how often to open a trade
-            minimum_trade_hold_days: int = config.get("minimum_trade_hold_days", 1)
-            agent_budget: FixedPoint = FixedPoint(config.get("agent_budget", 10_000_000))
-            # rates
-            variable_rate: FixedPoint = FixedPoint(str(config.get("variable_rate", 0.045)))
-            fixed_rate: FixedPoint = FixedPoint(str(config.get("fixed_rate", 0.045)))
-            # fees
-            curve_fee: FixedPoint = FixedPoint(str(config.get("curve_fee", 0.0)))
-            flat_fee: FixedPoint = FixedPoint(str(config.get("flat_fee", 0.0)))
-            governance_fee: FixedPoint = FixedPoint(str(config.get("governance_fee", 0.0)))
-            # misc extra
-            experiment_id: int = config.get("id", 0)
-            randseed: int = 1234
-
-        exp = ExperimentConfig()
-        log_dict = deepcopy(config)
-        log_dict.update(asdict(exp))
+        ## Setup config
+        run_config = run.config
+        exp_config = ExperimentConfig()
+        for key, value in run_config.items():
+            if hasattr(exp_config, key):
+                setattr(exp_config, key, value)
+        # log a combo of the two configs
+        log_dict = deepcopy(asdict(exp_config))
+        log_dict.update(run_config)  # add any wandb config items that are not in the exp config dataclass
         run.log(log_dict)
 
         ## Interactive Hyperdrive config has a subset of experiment config
         hyperdrive_config = InteractiveHyperdrive.Config(
-            position_duration=exp.position_duration,
-            checkpoint_duration=exp.checkpoint_duration,
-            initial_liquidity=exp.initial_liquidity,
-            initial_fixed_apr=exp.fixed_rate,
-            initial_variable_rate=exp.variable_rate,
-            curve_fee=exp.curve_fee,
-            flat_fee=exp.flat_fee,
-            governance_lp_fee=exp.governance_fee,
+            position_duration=exp_config.position_duration,
+            checkpoint_duration=exp_config.checkpoint_duration,
+            initial_liquidity=exp_config.initial_liquidity,
+            initial_fixed_apr=exp_config.fixed_rate,
+            initial_variable_rate=exp_config.variable_rate,
+            curve_fee=exp_config.curve_fee,
+            flat_fee=exp_config.flat_fee,
+            governance_lp_fee=exp_config.governance_fee,
             calc_pnl=False,
         )
 
         ## Initialize primary objects
-        rng = np.random.default_rng(seed=exp.randseed)
+        rng = np.random.default_rng(seed=exp_config.randseed)
         chain = LocalChain(LocalChain.Config(db_port=5_433, chain_port=10_000))
         interactive_hyperdrive = InteractiveHyperdrive(hyperdrive_config, chain)
 
         ## Initialize agents
         deployer_privkey = chain.get_deployer_account_private_key()
-        larry = interactive_hyperdrive.init_agent(base=exp.agent_budget, name="larry", private_key=deployer_privkey)
-        rob = interactive_hyperdrive.init_agent(base=exp.agent_budget, name="rob")
+        larry = interactive_hyperdrive.init_agent(
+            base=exp_config.agent_budget, name="larry", private_key=deployer_privkey
+        )
+        rob = interactive_hyperdrive.init_agent(base=exp_config.agent_budget, name="rob")
 
         # Trades are randomly long or short; trade amounts are fixed
-        base_amount_per_open = exp.initial_liquidity * exp.daily_volume_percentage_of_liquidity / exp.opens_per_day
+        base_amount_per_open = (
+            exp_config.initial_liquidity * exp_config.daily_volume_percentage_of_liquidity / exp_config.opens_per_day
+        )
         lp_present_value = []
-        for day in range(exp.experiment_days):
+        for day in range(exp_config.experiment_days):
             # Open a long or short trade for a predetermined amount
             open_events = []
-            for _ in range(exp.opens_per_day):
+            for _ in range(exp_config.opens_per_day):
                 trade_type = rng.choice([HyperdriveActionType.OPEN_LONG, HyperdriveActionType.OPEN_SHORT], size=1)
                 match trade_type:
                     case HyperdriveActionType.OPEN_LONG:
@@ -111,7 +96,7 @@ def lp_pnl_experiment(config=None):
                     interactive_hyperdrive.interface.get_current_block()
                 )
                 days_passed = int((current_block_time - mint_time) / 60 / 60 / 24)
-                if days_passed > exp.minimum_trade_hold_days:
+                if days_passed > exp_config.minimum_trade_hold_days:
                     gonna_close = rng.choice([True, False], size=1)
                     if gonna_close or days_passed > position_duration_days:
                         close_events.append(rob.close_long(long.maturity_time, long.balance))
@@ -123,7 +108,7 @@ def lp_pnl_experiment(config=None):
                     interactive_hyperdrive.interface.get_current_block()
                 )
                 days_passed = int((current_block_time - mint_time) / 60 / 60 / 24)
-                if days_passed > exp.minimum_trade_hold_days:
+                if days_passed > exp_config.minimum_trade_hold_days:
                     gonna_close = rng.choice([True, False], size=1)
                     if gonna_close or days_passed > position_duration_days:
                         close_events.append(rob.close_short(short.maturity_time, short.balance))
