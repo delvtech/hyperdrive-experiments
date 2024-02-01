@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import wandb
 
-from .lp_pnl_experiment import lp_pnl_experiment
+from .lp_pnl_experiment import lp_pnl_experiment as my_experiment
 
 # %%
 # Login
@@ -53,8 +53,9 @@ sweep_config["metric"] = metric
 
 # %%
 # Setup & run sweep
+# TODO: Remove this, grab it as a cli arg so that we can pair it up with run_many_sweeps.sh
 sweep_id = wandb.sweep(sweep_config, project="lp pnl sweep")
 
-wandb.agent(sweep_id, lp_pnl_experiment, count=500)
+wandb.agent(sweep_id, my_experiment, count=1)
 
 wandb.finish()

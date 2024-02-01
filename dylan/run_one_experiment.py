@@ -6,8 +6,10 @@ from dataclasses import asdict
 
 import wandb
 
-from .experiment_config import ExperimentConfig
-from .lp_pnl_experiment import lp_pnl_experiment
+from .experiment_configs import LpPnlConfig
+from .lp_pnl_experiment import lp_pnl_experiment as my_experiment
+
+# from .random_policy import some_other_experiment as my_experiment
 
 # %%
 # Login
@@ -15,7 +17,7 @@ wandb.login()
 
 # %%
 # Experiment details
-exp_config = ExperimentConfig(
+exp_config = LpPnlConfig(
     fixed_rate=0.05,
     variable_rate=0.05,
     curve_fee=0.01,
@@ -24,6 +26,6 @@ exp_config = ExperimentConfig(
 )
 # %%
 # Run the experiment
-lp_pnl_experiment(asdict(exp_config))
+my_experiment(asdict(exp_config))
 
 wandb.finish()
