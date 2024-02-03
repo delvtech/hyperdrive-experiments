@@ -17,15 +17,15 @@ from dataclasses import asdict
 import numpy as np
 
 import wandb
+from agent0.hyperdrive.agent import HyperdriveActionType
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
-from agent0.hyperdrive.state import HyperdriveActionType
 
-from .experiment_configs import LpPnlConfig
+from .experiment_configs import SomeOtherExperimentConfig
 
-# TODO: run this experiment w/ sweeps and get some plots
+# TODO: Set up a LP PNL experiment that logs larry's pnl for several random policy traders
 
 
-def lp_pnl_experiment(config=None):
+def some_other_experiment(config=None):
     start_time = time.time()
     experiment_notes = "Compute lp PNL given fees."
     experiment_tags = ["fees", "lp pnl"]
@@ -33,15 +33,13 @@ def lp_pnl_experiment(config=None):
     with wandb.init(config=config, notes=experiment_notes, tags=experiment_tags) as run:
         ## Setup config
         run_config = run.config
-        exp_config = LpPnlConfig()
+        exp_config = SomeOtherExperimentConfig()
         for key, value in run_config.items():
             if hasattr(exp_config, key):
                 setattr(exp_config, key, value)
         # log a combo of the two configs
         config_log_dict = deepcopy(asdict(exp_config))
         config_log_dict.update(run_config)  # add any wandb config items that are not in the exp config dataclass
-        # check if im in a sweep
-        # if in a sweep, add sweep id to config_log_dict
         run.log(config_log_dict)
 
         ## Interactive Hyperdrive config has a subset of experiment config
