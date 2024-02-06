@@ -20,12 +20,12 @@ import wandb
 from agent0.hyperdrive.agent import HyperdriveActionType
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 
-from .experiment_configs import SomeOtherExperimentConfig
+from .configs import LpPnlConfig
 
-# TODO: Set up a LP PNL experiment that logs larry's pnl for several random policy traders
+# TODO: run this experiment w/ sweeps and get some plots
 
 
-def some_other_experiment(config=None):
+def lp_pnl_experiment(config=None):
     start_time = time.time()
     experiment_notes = "Compute lp PNL given fees."
     experiment_tags = ["fees", "lp pnl"]
@@ -33,13 +33,15 @@ def some_other_experiment(config=None):
     with wandb.init(config=config, notes=experiment_notes, tags=experiment_tags) as run:
         ## Setup config
         run_config = run.config
-        exp_config = SomeOtherExperimentConfig()
+        exp_config = LpPnlConfig()
         for key, value in run_config.items():
             if hasattr(exp_config, key):
                 setattr(exp_config, key, value)
         # log a combo of the two configs
         config_log_dict = deepcopy(asdict(exp_config))
         config_log_dict.update(run_config)  # add any wandb config items that are not in the exp config dataclass
+        # check if im in a sweep
+        # if in a sweep, add sweep id to config_log_dict
         run.log(config_log_dict)
 
         ## Interactive Hyperdrive config has a subset of experiment config
@@ -122,14 +124,9 @@ def some_other_experiment(config=None):
         # update present value after the remaining trades
         lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
 
-        ## Run analysis
-        # total lp profits (lp present value) per day
-        # vault share price per day
-        # fees per day
-        # profit from backing trades per day
-        #
+        ## Run analytics
+        # Save experiment pool state onto w&b
         pool_state = interactive_hyperdrive.get_pool_state().to_parquet("pool_state.parquet")
-        # COMPUTE ANY ADDITIONAL COLUMNS
         state_artifact = wandb.Artifact(
             "pool-state",
             type="dataset",

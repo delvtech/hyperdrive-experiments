@@ -2,9 +2,9 @@
 # %%
 from __future__ import annotations
 
-import wandb
+from experiment.lp_pnl import lp_pnl_experiment as my_experiment
 
-from .lp_pnl_experiment import lp_pnl_experiment as my_experiment
+import wandb
 
 # TODO: Correct this syntax
 

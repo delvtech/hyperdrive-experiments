@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
+from experiment.configs import LpPnlConfig
+from experiment.lp_pnl import lp_pnl_experiment as my_experiment
+
 import wandb
-
-from .experiment_configs import LpPnlConfig
-from .lp_pnl_experiment import lp_pnl_experiment as my_experiment
-
-# from .random_policy import some_other_experiment as my_experiment
 
 # %%
 # Login
