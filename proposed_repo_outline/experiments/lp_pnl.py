@@ -192,3 +192,5 @@ def lp_pnl_experiment(config=None):
         ## Log final time
         end_time = time.time()
         run.log({"experiment_time": end_time - start_time})
+
+    chain.cleanup()

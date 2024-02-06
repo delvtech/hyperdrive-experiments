@@ -6,8 +6,9 @@ import argparse
 import os
 from dataclasses import asdict
 
-# from experiments.lp_pnl import LpPnlConfig, lp_pnl_experiment
-from experiments.random import RandomConfig, random_experiment
+from experiments.lp_pnl import LpPnlConfig, lp_pnl_experiment
+
+# from experiments.random import RandomConfig, random_experiment
 from fixedpointmath import FixedPoint
 
 import wandb
@@ -22,7 +23,8 @@ if __name__ == "__main__":
     use_wandb = parser.parse_args().wandb
 
     # Experiment details
-    exp_config = RandomConfig(
+    # exp_config = RandomConfig(
+    exp_config = LpPnlConfig(
         # pool config
         fixed_rate=FixedPoint("0.05"),
         variable_rate=FixedPoint("0.01"),
@@ -32,9 +34,9 @@ if __name__ == "__main__":
         experiment_days=30,  # 1 month
         num_agents=2,
         # trade config
-        initial_liquidity=FixedPoint(10_000_000),
+        initial_liquidity=FixedPoint(1_000_000),
         daily_volume_percentage_of_liquidity=FixedPoint("0.1"),
-        agent_budget=FixedPoint(10_000_000),
+        agent_budget=FixedPoint(1_000_000),
     )
 
     if use_wandb:
@@ -45,7 +47,8 @@ if __name__ == "__main__":
         exp_config.wandb_init_mode = "disabled"
 
     # Run the experiment
-    random_experiment(asdict(exp_config))
+    # random_experiment(asdict(exp_config))
+    lp_pnl_experiment(asdict(exp_config))
 
     if use_wandb:
         wandb.finish()

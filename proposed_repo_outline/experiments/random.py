@@ -24,7 +24,7 @@ class RandomConfig:
     daily_volume_percentage_of_liquidity: FixedPoint = FixedPoint("0.10")
     agent_budget: FixedPoint = FixedPoint(200_000_000)
     # rates
-    variable_rate: FixedPoint = FixedPoint("0.045")
+    variable_rate: FixedPoint = FixedPoint("0.05")
     fixed_rate: FixedPoint = FixedPoint("0.045")
     # fees
     curve_fee: FixedPoint = FixedPoint("0.0")
@@ -135,3 +135,5 @@ def random_experiment(config=None):
         ## Log final time
         end_time = time.time()
         run.log({"experiment_time": end_time - start_time})
+
+    chain.cleanup()
