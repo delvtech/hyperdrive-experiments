@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import time
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 
 import numpy as np
 from fixedpointmath import FixedPoint
@@ -20,13 +20,32 @@ from fixedpointmath import FixedPoint
 import wandb
 from agent0.hyperdrive.agent import HyperdriveActionType
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
-from agent0.hyperdrive.interactive.interactive_hyperdrive_agent import InteractiveHyperdriveAgent
-from agent0.hyperdrive.interactive.interactive_hyperdrive_policy import InteractiveHyperdrivePolicy
 from agent0.hyperdrive.policies import PolicyZoo
 
-from .configs import LpPnlConfig
 
-# TODO: run this experiment w/ sweeps and get some plots
+@dataclass
+class LpPnlConfig:
+    # experiment times
+    experiment_days: int = 365  # 1 year
+    position_duration: int = 60 * 60 * 24 * 30  # 1 month
+    checkpoint_duration: int = 60 * 60 * 24  # 1 day
+    initial_liquidity: FixedPoint = FixedPoint(200_000_000)
+    # trading amounts
+    daily_volume_percentage_of_liquidity: FixedPoint = FixedPoint("0.10")
+    minimum_trade_hold_days: FixedPoint = FixedPoint(1)
+    agent_budget: FixedPoint = FixedPoint(10_000_000_000)
+    # rates
+    variable_rate: FixedPoint = FixedPoint("0.045")
+    fixed_rate: FixedPoint = FixedPoint("0.045")
+    # fees
+    curve_fee: FixedPoint = FixedPoint("0.0")
+    flat_fee: FixedPoint = FixedPoint("0.0")
+    governance_fee: FixedPoint = FixedPoint("0.0")
+    # misc extra
+    num_agents: int = 1
+    experiment_id: int = 0
+    randseed: int = 1234
+    wandb_init_mode: str = "online"
 
 
 def lp_pnl_experiment(config=None):
