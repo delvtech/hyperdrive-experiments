@@ -15,10 +15,12 @@ from copy import deepcopy
 from dataclasses import asdict
 
 import numpy as np
+from fixedpointmath import FixedPoint
 
 import wandb
 from agent0.hyperdrive.agent import HyperdriveActionType
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
+from agent0.hyperdrive.interactive.interactive_hyperdrive_agent import InteractiveHyperdriveAgent
 
 from .configs import LpPnlConfig
 
@@ -30,19 +32,26 @@ def lp_pnl_experiment(config=None):
     experiment_notes = "Compute lp PNL given fees."
     experiment_tags = ["fees", "lp pnl"]
 
-    with wandb.init(config=config, notes=experiment_notes, tags=experiment_tags) as run:
+    if config is None:
+        mode = "online"
+    else:
+        mode = config["wandb_init_mode"]
+    with wandb.init(config=config, notes=experiment_notes, tags=experiment_tags, mode=mode) as run:
         ## Setup config
         run_config = run.config
         exp_config = LpPnlConfig()
+        # merge overlapping run config settings into experiment config, with casting since wandb communicates with dicts
         for key, value in run_config.items():
             if hasattr(exp_config, key):
-                setattr(exp_config, key, value)
+                exp_type = type(asdict(exp_config)[key])
+                setattr(exp_config, key, exp_type(value))
+        # if in a sweep, add sweep id to the run config dict
+        if hasattr(run, "sweep_id"):
+            run_config["sweep_id"] = run.sweep_id
         # log a combo of the two configs
-        config_log_dict = deepcopy(asdict(exp_config))
-        config_log_dict.update(run_config)  # add any wandb config items that are not in the exp config dataclass
-        # check if im in a sweep
-        # if in a sweep, add sweep id to config_log_dict
-        run.log(config_log_dict)
+        log_dict = deepcopy(asdict(exp_config))
+        log_dict.update(run_config)
+        run.log(log_dict)
 
         ## Interactive Hyperdrive config has a subset of experiment config
         hyperdrive_config = InteractiveHyperdrive.Config(
@@ -60,41 +69,54 @@ def lp_pnl_experiment(config=None):
         ## Initialize primary objects
         rng = np.random.default_rng(seed=exp_config.randseed)
         chain = LocalChain(LocalChain.Config(db_port=5_433, chain_port=10_000))
-        interactive_hyperdrive = InteractiveHyperdrive(hyperdrive_config, chain)
+        interactive_hyperdrive = InteractiveHyperdrive(chain, hyperdrive_config)
 
-        ## Initialize agents
-        deployer_privkey = chain.get_deployer_account_private_key()
-        larry = interactive_hyperdrive.init_agent(
-            base=exp_config.agent_budget, name="larry", private_key=deployer_privkey
-        )
-        rob = interactive_hyperdrive.init_agent(base=exp_config.agent_budget, name="rob")
-
-        # Trades are randomly long or short; trade amounts are fixed
+        ## Compute trade amounts
+        # trades are randomly long or short; trade amounts are fixed
         base_amount_per_open = (
             exp_config.initial_liquidity * exp_config.daily_volume_percentage_of_liquidity / exp_config.opens_per_day
         )
+        if base_amount_per_open * FixedPoint(exp_config.experiment_days) > exp_config.agent_budget:
+            raise ValueError(
+                f"{exp_config.agent_budget=} must be >= "
+                f"{base_amount_per_open * FixedPoint(exp_config.experiment_days)=}"
+            )
+
+        ## Initialize agents
+        # TODO: Directly compute and log liquidity for larry, instead of using lp share price.
+        # deployer_privkey = chain.get_deployer_account_private_key()
+        # larry = interactive_hyperdrive.init_agent(
+        #     base=exp_config.agent_budget, name="larry", private_key=deployer_privkey
+        # )
+        agents = [
+            interactive_hyperdrive.init_agent(base=exp_config.agent_budget, name=f"agent_{id}")
+            for id in range(exp_config.num_agents)
+        ]
+
+        ## Run the experiment loop
         lp_present_value = []
         for day in range(exp_config.experiment_days):
             # Open a long or short trade for a predetermined amount
             open_events = []
-            for _ in range(exp_config.opens_per_day):
+            for _ in range(int(exp_config.opens_per_day)):
+                trader = agents[rng.integers(low=0, high=len(agents))]
                 trade_type = rng.choice([HyperdriveActionType.OPEN_LONG, HyperdriveActionType.OPEN_SHORT], size=1)
+                pool_state = interactive_hyperdrive.interface.current_pool_state
                 match trade_type:
                     case HyperdriveActionType.OPEN_LONG:
-                        open_events.append(rob.open_long(base=base_amount_per_open))
+                        open_events.append(trader.open_long(base=base_amount_per_open))
                     case HyperdriveActionType.OPEN_SHORT:
-                        pool_state = interactive_hyperdrive.interface.current_pool_state
                         amount_to_trade_bonds = interactive_hyperdrive.interface.calc_bonds_out_given_shares_in_down(
                             amount_in=base_amount_per_open / pool_state.pool_info.vault_share_price,
                             pool_state=pool_state,
                         )
-                        open_events.append(rob.open_short(bonds=amount_to_trade_bonds))
+                        open_events.append(trader.open_short(bonds=amount_to_trade_bonds))
                 # update present value after a trade
                 lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
             # Optionally close trades
             position_duration_days = int(interactive_hyperdrive.interface.pool_config.position_duration / 60 / 60 / 24)
             close_events = []
-            for long in rob.wallet.longs.values():
+            for long in trader.wallet.longs.values():
                 mint_time = long.maturity_time - interactive_hyperdrive.interface.pool_config.position_duration
                 current_block_time = interactive_hyperdrive.interface.get_block_timestamp(
                     interactive_hyperdrive.interface.get_current_block()
@@ -103,10 +125,10 @@ def lp_pnl_experiment(config=None):
                 if days_passed > exp_config.minimum_trade_hold_days:
                     gonna_close = rng.choice([True, False], size=1)
                     if gonna_close or days_passed > position_duration_days:
-                        close_events.append(rob.close_long(long.maturity_time, long.balance))
+                        close_events.append(trader.close_long(long.maturity_time, long.balance))
                         # update present value after a trade
                         lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
-            for short in rob.wallet.shorts.values():
+            for short in trader.wallet.shorts.values():
                 mint_time = short.maturity_time - interactive_hyperdrive.interface.pool_config.position_duration
                 current_block_time = interactive_hyperdrive.interface.get_block_timestamp(
                     interactive_hyperdrive.interface.get_current_block()
@@ -115,23 +137,25 @@ def lp_pnl_experiment(config=None):
                 if days_passed > exp_config.minimum_trade_hold_days:
                     gonna_close = rng.choice([True, False], size=1)
                     if gonna_close or days_passed > position_duration_days:
-                        close_events.append(rob.close_short(short.maturity_time, short.balance))
+                        close_events.append(trader.close_short(short.maturity_time, short.balance))
                         # update present value after a trade
                         lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
             run.log({"pnl": lp_present_value[-1], "day": day})
-        # Close everything up in the end
-        rob.liquidate(randomize=True)
-        # update present value after the remaining trades
-        lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
+        ## Liquidate trades at the end
+        for agent in agents:
+            agent.liquidate(randomize=True)
 
         ## Run analytics
+        # update present value after the remaining trades
+        lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
+        run.log({"pnl": lp_present_value[-1], "day": day + 1})
         # Save experiment pool state onto w&b
         pool_state = interactive_hyperdrive.get_pool_state().to_parquet("pool_state.parquet")
         state_artifact = wandb.Artifact(
             "pool-state",
             type="dataset",
             description="Final state of the Hyperdrive pool after the experiment was completed",
-            metadata=config_log_dict,
+            metadata=log_dict,
         )
         state_artifact.add(pool_state, "pool-state")
         run.log_artifact(state_artifact)
