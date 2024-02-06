@@ -34,7 +34,7 @@ class RandomConfig:
     num_agents: int = 1
     experiment_id: int = 0
     randseed: int = 1234
-    wandb_init_mode: str = "online"
+    wandb_init_mode: str = "online"  # "online", "offline", or "disabled"
 
 
 def random_experiment(config=None):
@@ -109,7 +109,6 @@ def random_experiment(config=None):
                 for trade_outcome in trade_outcomes:
                     current_daily_volume += trade_outcome.base_amount
                     trade_events.append(trade_outcome)
-                    print(f"{trade_outcome=}")
                 lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
             run.log({"pnl": lp_present_value[-1], "day": day})
 
@@ -122,15 +121,18 @@ def random_experiment(config=None):
         lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
         run.log({"pnl": lp_present_value[-1], "day": day + 1})
         # Save experiment pool state onto w&b
-        pool_state = interactive_hyperdrive.get_pool_state().to_parquet("pool_state.parquet")
-        state_artifact = wandb.Artifact(
-            "pool-state",
-            type="dataset",
-            description="Final state of the Hyperdrive pool after the experiment was completed",
-            metadata=log_dict,
-        )
-        state_artifact.add(pool_state, "pool-state")
-        run.log_artifact(state_artifact)
+        try:  # this will only work if wandb is enabled
+            pool_state = interactive_hyperdrive.get_pool_state().to_parquet("pool_state.parquet")
+            state_artifact = wandb.Artifact(
+                "pool-state",
+                type="dataset",
+                description="Final state of the Hyperdrive pool after the experiment was completed",
+                metadata=log_dict,
+            )
+            state_artifact.add(pool_state, "pool-state")
+            run.log_artifact(state_artifact)
+        except ValueError as err:
+            pass
 
         ## Log final time
         end_time = time.time()

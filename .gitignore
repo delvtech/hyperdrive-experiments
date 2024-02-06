@@ -1,5 +1,6 @@
 # Agent 0
 .crash_report
+*.parquet
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
