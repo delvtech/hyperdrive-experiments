@@ -21,6 +21,8 @@ import wandb
 from agent0.hyperdrive.agent import HyperdriveActionType
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 from agent0.hyperdrive.interactive.interactive_hyperdrive_agent import InteractiveHyperdriveAgent
+from agent0.hyperdrive.interactive.interactive_hyperdrive_policy import InteractiveHyperdrivePolicy
+from agent0.hyperdrive.policies import PolicyZoo
 
 from .configs import LpPnlConfig
 
@@ -31,11 +33,8 @@ def lp_pnl_experiment(config=None):
     start_time = time.time()
     experiment_notes = "Compute lp PNL given fees."
     experiment_tags = ["fees", "lp pnl"]
+    mode = "online" if config is None else config["wandb_init_mode"]
 
-    if config is None:
-        mode = "online"
-    else:
-        mode = config["wandb_init_mode"]
     with wandb.init(config=config, notes=experiment_notes, tags=experiment_tags, mode=mode) as run:
         ## Setup config
         run_config = run.config
@@ -65,22 +64,12 @@ def lp_pnl_experiment(config=None):
             governance_lp_fee=exp_config.governance_fee,
             calc_pnl=False,
         )
+        total_daily_volume = exp_config.initial_liquidity * exp_config.daily_volume_percentage_of_liquidity
 
         ## Initialize primary objects
         rng = np.random.default_rng(seed=exp_config.randseed)
         chain = LocalChain(LocalChain.Config(db_port=5_433, chain_port=10_000))
         interactive_hyperdrive = InteractiveHyperdrive(chain, hyperdrive_config)
-
-        ## Compute trade amounts
-        # trades are randomly long or short; trade amounts are fixed
-        base_amount_per_open = (
-            exp_config.initial_liquidity * exp_config.daily_volume_percentage_of_liquidity / exp_config.opens_per_day
-        )
-        if base_amount_per_open * FixedPoint(exp_config.experiment_days) > exp_config.agent_budget:
-            raise ValueError(
-                f"{exp_config.agent_budget=} must be >= "
-                f"{base_amount_per_open * FixedPoint(exp_config.experiment_days)=}"
-            )
 
         ## Initialize agents
         # TODO: Directly compute and log liquidity for larry, instead of using lp share price.
@@ -89,57 +78,78 @@ def lp_pnl_experiment(config=None):
         #     base=exp_config.agent_budget, name="larry", private_key=deployer_privkey
         # )
         agents = [
-            interactive_hyperdrive.init_agent(base=exp_config.agent_budget, name=f"agent_{id}")
+            interactive_hyperdrive.init_agent(
+                base=exp_config.agent_budget,
+                policy=PolicyZoo.lp_and_arb,
+                policy_config=PolicyZoo.lp_and_arb.Config(rng=rng, lp_portion=FixedPoint("0.0")),
+                name=f"agent_{id}",
+            )
             for id in range(exp_config.num_agents)
         ]
 
         ## Run the experiment loop
         lp_present_value = []
+        trade_events = []
         for day in range(exp_config.experiment_days):
-            # Open a long or short trade for a predetermined amount
-            open_events = []
-            for _ in range(int(exp_config.opens_per_day)):
-                trader = agents[rng.integers(low=0, high=len(agents))]
-                trade_type = rng.choice([HyperdriveActionType.OPEN_LONG, HyperdriveActionType.OPEN_SHORT], size=1)
-                pool_state = interactive_hyperdrive.interface.current_pool_state
-                match trade_type:
-                    case HyperdriveActionType.OPEN_LONG:
-                        open_events.append(trader.open_long(base=base_amount_per_open))
-                    case HyperdriveActionType.OPEN_SHORT:
-                        amount_to_trade_bonds = interactive_hyperdrive.interface.calc_bonds_out_given_shares_in_down(
-                            amount_in=base_amount_per_open / pool_state.pool_info.vault_share_price,
-                            pool_state=pool_state,
-                        )
-                        open_events.append(trader.open_short(bonds=amount_to_trade_bonds))
+            current_daily_volume = FixedPoint(0)
+            while current_daily_volume < total_daily_volume:
+                trader = agents[rng.integers(len(agents))]
+                position_duration_days = int(
+                    interactive_hyperdrive.interface.pool_config.position_duration / 60 / 60 / 24
+                )
+
+                # loop over longs & close them if they're mature enough
+                for long in trader.wallet.longs.values():
+                    mint_time = long.maturity_time - interactive_hyperdrive.interface.pool_config.position_duration
+                    current_block_time = interactive_hyperdrive.interface.get_block_timestamp(
+                        interactive_hyperdrive.interface.get_current_block()
+                    )
+                    days_passed = int((current_block_time - mint_time) / 60 / 60 / 24)
+                    if days_passed > exp_config.minimum_trade_hold_days:
+                        gonna_close = rng.choice([True, False], size=1)
+                        if gonna_close or days_passed > position_duration_days:
+                            trade_events.append(trader.close_long(long.maturity_time, long.balance))
+                            # update present value and volume after a trade
+                            lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
+                            current_daily_volume += long.balance
+
+                # loop over shorts & close them if they're mature enough
+                for short in trader.wallet.shorts.values():
+                    mint_time = short.maturity_time - interactive_hyperdrive.interface.pool_config.position_duration
+                    current_block_time = interactive_hyperdrive.interface.get_block_timestamp(
+                        interactive_hyperdrive.interface.get_current_block()
+                    )
+                    days_passed = int((current_block_time - mint_time) / 60 / 60 / 24)
+                    if days_passed > exp_config.minimum_trade_hold_days:
+                        gonna_close = rng.choice([True, False], size=1)
+                        if gonna_close or days_passed > position_duration_days:
+                            trade_events.append(trader.close_short(short.maturity_time, short.balance))
+                            # update present value and volume after a trade
+                            lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
+                            current_daily_volume += short.balance
+
+                # execute a profitable or not profitable trade (50% chance for either)
+                profitable = rng.choice([True, False], size=1)
+                if profitable:  # do an arb trade half the time
+                    trade_events.append(trader.execute_policy_action())
+                else:  # not guaranteed to lose money, but more likely to given the arb trades
+                    base_amount_to_open = total_daily_volume - current_daily_volume
+                    match rng.choice([HyperdriveActionType.OPEN_LONG, HyperdriveActionType.OPEN_SHORT], size=1):
+                        case HyperdriveActionType.OPEN_LONG:
+                            trade_events.append(trader.open_long(base=base_amount_to_open))
+                        case HyperdriveActionType.OPEN_SHORT:
+                            pool_state = interactive_hyperdrive.interface.current_pool_state
+                            amount_to_trade_bonds = (
+                                interactive_hyperdrive.interface.calc_bonds_out_given_shares_in_down(
+                                    amount_in=base_amount_to_open / pool_state.pool_info.vault_share_price,
+                                    pool_state=pool_state,
+                                )
+                            )
+                            trade_events.append(trader.open_short(bonds=amount_to_trade_bonds))
+                current_daily_volume += trade_events[-1].base_amount
                 # update present value after a trade
                 lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
-            # Optionally close trades
-            position_duration_days = int(interactive_hyperdrive.interface.pool_config.position_duration / 60 / 60 / 24)
-            close_events = []
-            for long in trader.wallet.longs.values():
-                mint_time = long.maturity_time - interactive_hyperdrive.interface.pool_config.position_duration
-                current_block_time = interactive_hyperdrive.interface.get_block_timestamp(
-                    interactive_hyperdrive.interface.get_current_block()
-                )
-                days_passed = int((current_block_time - mint_time) / 60 / 60 / 24)
-                if days_passed > exp_config.minimum_trade_hold_days:
-                    gonna_close = rng.choice([True, False], size=1)
-                    if gonna_close or days_passed > position_duration_days:
-                        close_events.append(trader.close_long(long.maturity_time, long.balance))
-                        # update present value after a trade
-                        lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
-            for short in trader.wallet.shorts.values():
-                mint_time = short.maturity_time - interactive_hyperdrive.interface.pool_config.position_duration
-                current_block_time = interactive_hyperdrive.interface.get_block_timestamp(
-                    interactive_hyperdrive.interface.get_current_block()
-                )
-                days_passed = int((current_block_time - mint_time) / 60 / 60 / 24)
-                if days_passed > exp_config.minimum_trade_hold_days:
-                    gonna_close = rng.choice([True, False], size=1)
-                    if gonna_close or days_passed > position_duration_days:
-                        close_events.append(trader.close_short(short.maturity_time, short.balance))
-                        # update present value after a trade
-                        lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
+
             run.log({"pnl": lp_present_value[-1], "day": day})
         ## Liquidate trades at the end
         for agent in agents:

@@ -27,18 +27,17 @@ if __name__ == "__main__":
     exp_config = LpPnlConfig(
         # pool config
         fixed_rate=FixedPoint("0.05"),
-        variable_rate=FixedPoint("0.05"),
+        variable_rate=FixedPoint("0.01"),
         curve_fee=FixedPoint("0.01"),
         flat_fee=FixedPoint("0.01"),
         position_duration=60 * 60 * 24 * 7,  # 1 week
         experiment_days=30,  # 1 month
         num_agents=2,
         # trade config
-        initial_liquidity=FixedPoint(100_000_000),
-        daily_volume_percentage_of_liquidity=FixedPoint("0.10"),
-        opens_per_day=FixedPoint(5),
-        minimum_trade_hold_days=FixedPoint(3),
-        agent_budget=FixedPoint(100_000_000),
+        initial_liquidity=FixedPoint(10_000_000),
+        daily_volume_percentage_of_liquidity=FixedPoint("0.1"),
+        agent_budget=FixedPoint(10_000_000),
+        minimum_trade_hold_days=FixedPoint(1),
     )
 
     if use_wandb:

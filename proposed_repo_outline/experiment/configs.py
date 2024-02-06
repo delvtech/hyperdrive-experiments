@@ -14,7 +14,6 @@ class LpPnlConfig:
     initial_liquidity: FixedPoint = FixedPoint(200_000_000)
     # trading amounts
     daily_volume_percentage_of_liquidity: FixedPoint = FixedPoint("0.10")
-    opens_per_day: FixedPoint = FixedPoint(1)  # how often to open a trade
     minimum_trade_hold_days: FixedPoint = FixedPoint(1)
     agent_budget: FixedPoint = FixedPoint(10_000_000_000)
     # rates
