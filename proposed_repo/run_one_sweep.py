@@ -14,31 +14,35 @@ import wandb
 
 def run_one_sweep(
     sweep_id: str = "",
-    experiment_fn: Callable | None = None,
+    experiment: str = "",
     count: int = 1,
     sweep_config: dict | None = None,
     entity: str = "delvtech",
     project: str = "agent0_sweep",
 ):
     """Create a wandb sweep for a given experiment."""
-    if experiment_fn is None:
+    if experiment == "":
         experiment_fn = experiments.random_trades
+    else:
+        # TODO: Remove the proposed_repo path once we adopt this fully
+        experiment_module = importlib.import_module(name="proposed_repo.experiments." + experiment)
+        experiment_fn = getattr(experiment_module, experiment)
 
     if sweep_config is None:
         sweep_config = deepcopy(SWEEP_CONFIG)
         sweep_config["wandb_init_mode"] = "online"
 
-    # Login (will be a noop if already logged in)
+    # login (will be a noop if already logged in)
     wandb.login()
 
-    # Setup sweep
+    # setup sweep
     if sweep_id == "":
         sweep_id = wandb.sweep(sweep=sweep_config, entity=entity, project=project)
 
-    # Spawn agent & run the experiment function
+    # spawn agent & run the experiment function
     wandb.agent(sweep_id=sweep_id, function=experiment_fn, entity=entity, project=project, count=count)
 
-    # Cleanup
+    # cleanup
     wandb.finish()
 
 
@@ -76,14 +80,10 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    experiment_name = args.experiment
+    experiment = args.experiment
     sweep_id = args.sweepid
     project = args.project
     entity = args.entity
     count = args.count
 
-    # TODO: Remove the proposed_repo path once we adopt this fully
-    experiment_module = importlib.import_module(name="proposed_repo.experiments." + experiment_name)
-    experiment_fn = getattr(experiment_module, experiment_name)
-
-    run_one_sweep(sweep_id=sweep_id, experiment_fn=experiment_fn, count=count, entity=entity, project=project)
+    run_one_sweep(sweep_id=sweep_id, experiment=experiment, count=count, entity=entity, project=project)

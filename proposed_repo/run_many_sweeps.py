@@ -48,8 +48,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     num_processes = args.num_processes
-    num_sweeps_per_process = args.sweeps_per_process
-    experiment_name = args.experiment
+    sweeps_per_process = args.sweeps_per_process
+    experiment = args.experiment
     project = args.project
     entity = args.entity
 
@@ -62,16 +62,15 @@ if __name__ == "__main__":
     # create a sweep ID
     sweep_id = wandb.sweep(sweep=sweep_config, entity=entity, project=project)
 
-    # create a pool of processes which will carry out tasks submitted
+    # create a pool of processes which will carry out sweeps
     pool = Pool()
-    for process_id in range(num_processes):
-        # create a process
+    for proc_id in range(num_processes):
         async_result = pool.apply_async(
             func=run_one_sweep,
             kwds={
                 "sweep_id": sweep_id,
-                "experiment": experiment_name,
-                "count": num_sweeps_per_process,
+                "experiment": experiment,
+                "count": sweeps_per_process,
                 "sweep_config": sweep_config,
                 "entity": entity,
                 "project": project,
