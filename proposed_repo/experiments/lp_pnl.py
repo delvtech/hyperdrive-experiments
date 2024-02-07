@@ -22,30 +22,7 @@ from agent0.hyperdrive.agent import HyperdriveActionType
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 from agent0.hyperdrive.policies import PolicyZoo
 
-
-@dataclass
-class LpPnlConfig:
-    # experiment times
-    experiment_days: int = 365  # 1 year
-    position_duration: int = 60 * 60 * 24 * 30  # 1 month
-    checkpoint_duration: int = 60 * 60 * 24  # 1 day
-    initial_liquidity: FixedPoint = FixedPoint(200_000_000)
-    # trading amounts
-    daily_volume_percentage_of_liquidity: FixedPoint = FixedPoint("0.10")
-    minimum_trade_hold_days: FixedPoint = FixedPoint(1)
-    agent_budget: FixedPoint = FixedPoint(10_000_000_000)
-    # rates
-    variable_rate: FixedPoint = FixedPoint("0.045")
-    fixed_rate: FixedPoint = FixedPoint("0.045")
-    # fees
-    curve_fee: FixedPoint = FixedPoint("0.0")
-    flat_fee: FixedPoint = FixedPoint("0.0")
-    governance_fee: FixedPoint = FixedPoint("0.0")
-    # misc extra
-    num_agents: int = 1
-    experiment_id: int = 0
-    randseed: int = 1234
-    wandb_init_mode: str = "online"  # "online", "offline", or "disabled"
+from .config import Config
 
 
 def lp_pnl_experiment(config=None):
@@ -57,12 +34,14 @@ def lp_pnl_experiment(config=None):
     with wandb.init(config=config, notes=experiment_notes, tags=experiment_tags, mode=mode) as run:
         ## Setup config
         run_config = run.config
-        exp_config = LpPnlConfig()
+        exp_config = Config()
         # merge overlapping run config settings into experiment config, with casting since wandb communicates with dicts
+        skip_keys = ["rng"]
         for key, value in run_config.items():
-            if hasattr(exp_config, key):
-                exp_type = type(asdict(exp_config)[key])
-                setattr(exp_config, key, exp_type(value))
+            if key not in skip_keys and hasattr(exp_config, key):
+                exp_type = type(asdict(exp_config)[key]) if value is not None else lambda x: None
+                if getattr(exp_config, key) != exp_type(value):
+                    setattr(exp_config, key, exp_type(value))
         # if in a sweep, add sweep id to the run config dict
         if hasattr(run, "sweep_id"):
             run_config["sweep_id"] = run.sweep_id
@@ -71,24 +50,11 @@ def lp_pnl_experiment(config=None):
         log_dict.update(run_config)
         run.log(log_dict)
 
-        ## Interactive Hyperdrive config has a subset of experiment config
-        hyperdrive_config = InteractiveHyperdrive.Config(
-            position_duration=exp_config.position_duration,
-            checkpoint_duration=exp_config.checkpoint_duration,
-            initial_liquidity=exp_config.initial_liquidity,
-            initial_fixed_apr=exp_config.fixed_rate,
-            initial_variable_rate=exp_config.variable_rate,
-            curve_fee=exp_config.curve_fee,
-            flat_fee=exp_config.flat_fee,
-            governance_lp_fee=exp_config.governance_fee,
-            calc_pnl=False,
-        )
-        total_daily_volume = exp_config.initial_liquidity * exp_config.daily_volume_percentage_of_liquidity
-
         ## Initialize primary objects
+        total_daily_volume = exp_config.initial_liquidity * exp_config.daily_volume_percentage_of_liquidity
         rng = np.random.default_rng(seed=exp_config.randseed)
         chain = LocalChain(LocalChain.Config(db_port=5_433, chain_port=10_000))
-        interactive_hyperdrive = InteractiveHyperdrive(chain, hyperdrive_config)
+        interactive_hyperdrive = InteractiveHyperdrive(chain, exp_config)
 
         ## Initialize agents
         # TODO: Directly compute and log liquidity for larry, instead of using lp share price.
@@ -169,7 +135,7 @@ def lp_pnl_experiment(config=None):
                 # update present value after a trade
                 lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
 
-            run.log({"pnl": lp_present_value[-1], "day": day})
+            run.log({"pnl": float(lp_present_value[-1]), "day": day})
         ## Liquidate trades at the end
         for agent in agents:
             agent.liquidate(randomize=True)
@@ -177,7 +143,7 @@ def lp_pnl_experiment(config=None):
         ## Run analytics
         # update present value after the remaining trades
         lp_present_value.append(interactive_hyperdrive.interface.calc_present_value())
-        run.log({"pnl": lp_present_value[-1], "day": day + 1})
+        run.log({"pnl": float(lp_present_value[-1]), "day": day + 1})
         # Save experiment pool state onto w&b
         try:  # this will only work if wandb is enabled
             pool_state = interactive_hyperdrive.get_pool_state().to_parquet("pool_state.parquet")

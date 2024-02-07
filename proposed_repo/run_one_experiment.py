@@ -22,19 +22,17 @@ if __name__ == "__main__":
 
     # Experiment details
     # exp_config = experiments.RandomConfig(
-    exp_config = experiments.LpPnlConfig(
-        # pool config
-        fixed_rate=FixedPoint("0.05"),
-        variable_rate=FixedPoint("0.01"),
-        curve_fee=FixedPoint("0.001"),
-        flat_fee=FixedPoint("0.001"),
-        position_duration=60 * 60 * 24 * 7,  # 1 week
+    exp_config = experiments.Config(
         experiment_days=10,
-        num_agents=2,
-        # trade config
+        position_duration=60 * 60 * 24 * 7,  # 1 week
         initial_liquidity=FixedPoint(1_000_000),
         daily_volume_percentage_of_liquidity=FixedPoint("0.1"),
         agent_budget=FixedPoint(1_000_000),
+        initial_variable_rate=FixedPoint("0.01"),
+        initial_fixed_rate=FixedPoint("0.05"),
+        curve_fee=FixedPoint("0.001"),
+        flat_fee=FixedPoint("0.001"),
+        num_agents=2,
     )
 
     if use_wandb:
@@ -45,8 +43,8 @@ if __name__ == "__main__":
         exp_config.wandb_init_mode = "disabled"
 
     # Run the experiment
-    # experiments.random_experiment(asdict(exp_config))
-    experiments.lp_pnl_experiment(asdict(exp_config))
+    experiments.random_experiment(asdict(exp_config))
+    # experiments.lp_pnl_experiment(asdict(exp_config))
 
     if use_wandb:
         wandb.finish()

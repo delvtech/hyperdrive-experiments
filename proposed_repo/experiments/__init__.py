@@ -1,2 +1,3 @@
-from .lp_pnl import LpPnlConfig, lp_pnl_experiment
-from .random import RandomConfig, random_experiment
+from .config import Config
+from .lp_pnl import lp_pnl_experiment
+from .random import random_experiment
