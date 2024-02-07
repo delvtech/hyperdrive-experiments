@@ -1,6 +1,7 @@
 """Master config for experiments."""
 
 from dataclasses import dataclass
+from typing import Any
 
 from fixedpointmath import FixedPoint
 
@@ -33,3 +34,48 @@ class Config(InteractiveHyperdrive.Config):
     randseed: int = 1234
     calc_pnl: bool = False
     wandb_init_mode: str = "online"  # "online", "offline", or "disabled"
+
+
+def gen_sweep_config() -> dict[str, Any]:
+    sweep_config = {"method": "random"}
+
+    ## What to sweep over
+    grid_parameters = {"initial_fixed_rate": {"values": [0, 0.01, 0.1]}}
+
+    random_parameters = {
+        "flat_fee": {
+            "distribution": "normal",
+            "mu": 0.01,
+            "sigma": 0.001,
+        },
+        "curve_fee": {
+            "distribution": "normal",
+            "mu": 0.01,
+            "sigma": 0.001,
+        },
+        "governance_lp_fee": {
+            "distribution": "normal",
+            "mu": 0.01,
+            "sigma": 0.001,
+        },
+    }
+
+    constant_parameters = {
+        "position_duration": {"value": 60 * 60 * 24 * 30},
+        "initial_variable_rate": {"value": 0.045},
+    }
+
+    parameters_dict = {}
+    parameters_dict.update(grid_parameters)
+    parameters_dict.update(random_parameters)
+    parameters_dict.update(constant_parameters)
+
+    sweep_config["parameters"] = parameters_dict
+
+    metric = {"name": "pnl", "goal": "maximize"}
+    sweep_config["metric"] = metric
+
+    return sweep_config
+
+
+SWEEP_CONFIG = gen_sweep_config()

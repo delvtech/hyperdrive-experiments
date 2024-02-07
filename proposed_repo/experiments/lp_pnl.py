@@ -15,9 +15,9 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass
 
 import numpy as np
+import wandb
 from fixedpointmath import FixedPoint
 
-import wandb
 from agent0.hyperdrive.agent import HyperdriveActionType
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 from agent0.hyperdrive.policies import PolicyZoo
@@ -25,7 +25,7 @@ from agent0.hyperdrive.policies import PolicyZoo
 from .config import Config
 
 
-def lp_pnl_experiment(config=None):
+def lp_pnl(config=None):
     start_time = time.time()
     experiment_notes = "Compute lp PNL given fees."
     experiment_tags = ["fees", "lp pnl"]

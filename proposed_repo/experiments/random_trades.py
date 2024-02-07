@@ -1,14 +1,16 @@
 """Run some random trades."""
 from __future__ import annotations
 
+import json
 import time
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 
 import numpy as np
-from fixedpointmath import FixedPoint
-
 import wandb
+from fixedpointmath import FixedPoint
+from hyperlogs import ExtendedJSONEncoder
+
 from agent0.hyperdrive.agent import HyperdriveActionType
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 from agent0.hyperdrive.policies import PolicyZoo
@@ -16,7 +18,7 @@ from agent0.hyperdrive.policies import PolicyZoo
 from .config import Config
 
 
-def random_experiment(config=None):
+def random_trades(config=None):
     start_time = time.time()
     experiment_notes = "Execute a minimum volume of random trades."
     experiment_tags = ["fees", "lp pnl"]
@@ -39,7 +41,7 @@ def random_experiment(config=None):
         # log a combo of the two configs
         log_dict = deepcopy(asdict(exp_config))
         log_dict.update(run_config)
-        run.log(log_dict)
+        run.log(json.loads(json.dumps(log_dict, cls=ExtendedJSONEncoder)))
 
         ## Initialize primary objects
         total_daily_volume = exp_config.initial_liquidity * exp_config.daily_volume_percentage_of_liquidity

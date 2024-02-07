@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import os
 from dataclasses import asdict
 
@@ -12,16 +13,23 @@ from fixedpointmath import FixedPoint
 import wandb
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Runs a loop to check Hyperdrive invariants at each block.")
+    parser = argparse.ArgumentParser(description="Run one experiment.")
+    parser.add_argument(
+        "--experiment",
+        type=str,
+        default="random_trades",
+        help="Which experiment to run.",
+    )
     parser.add_argument(
         "--wandb",
         action="store_true",
         help="If set, will use wandb.",
     )
-    use_wandb = parser.parse_args().wandb
+    args = parser.parse_args()
+    experiment_name = args.experiment
+    use_wandb = args.wandb
 
     # Experiment details
-    # exp_config = experiments.RandomConfig(
     exp_config = experiments.Config(
         experiment_days=10,
         position_duration=60 * 60 * 24 * 7,  # 1 week
@@ -43,8 +51,9 @@ if __name__ == "__main__":
         exp_config.wandb_init_mode = "disabled"
 
     # Run the experiment
-    experiments.random_experiment(asdict(exp_config))
-    # experiments.lp_pnl_experiment(asdict(exp_config))
+    # TODO: Remove the proposed_repo path once we adopt this fully
+    experiment_module = importlib.import_module(name="proposed_repo.experiments." + experiment_name)
+    getattr(experiment_module, experiment_name)(asdict(exp_config))
 
     if use_wandb:
         wandb.finish()
