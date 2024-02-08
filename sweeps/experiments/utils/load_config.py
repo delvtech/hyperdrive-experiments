@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-import wandb
 import yaml
+
+import wandb
 
 
 def load_config(entity: str, project: str, run_id: str) -> dict[str, Any]:

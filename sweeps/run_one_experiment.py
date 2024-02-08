@@ -8,8 +8,9 @@ import os
 from dataclasses import asdict
 
 import experiments
-import wandb
 from fixedpointmath import FixedPoint
+
+import wandb
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run one experiment.")
@@ -51,8 +52,7 @@ if __name__ == "__main__":
         exp_config.wandb_init_mode = "disabled"
 
     # Run the experiment
-    # TODO: Remove the proposed_repo path once we adopt this fully
-    experiment_module = importlib.import_module(name="proposed_repo.experiments." + experiment)
+    experiment_module = importlib.import_module(name="sweeps.experiments." + experiment)
     getattr(experiment_module, experiment)(asdict(exp_config))
 
     if use_wandb:

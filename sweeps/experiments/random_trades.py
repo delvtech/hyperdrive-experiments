@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from copy import deepcopy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 
 import numpy as np
 import wandb
@@ -15,7 +15,8 @@ from hyperlogs import ExtendedJSONEncoder
 from agent0.hyperdrive.agent import HyperdriveActionType
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 from agent0.hyperdrive.policies import PolicyZoo
-from utils import convert_run_config
+
+from .utils import convert_run_config
 
 
 def random_trades(config=None):

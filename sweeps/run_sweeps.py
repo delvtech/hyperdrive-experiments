@@ -6,12 +6,49 @@ This example script could be extended to run sweeps in parallel on different CPU
 from __future__ import annotations
 
 import argparse
+import importlib
 from copy import deepcopy
 from multiprocessing.pool import Pool
 
-import wandb
 from experiments import SWEEP_CONFIG
-from run_one_sweep import run_one_sweep
+
+import wandb
+
+
+def run_one_sweep(
+    sweep_id: str = "",
+    experiment: str = "",
+    count: int = 1,
+    sweep_config: dict | None = None,
+    entity: str = "delvtech",
+    project: str = "agent0_sweep",
+):
+    """Create a wandb sweep for a given experiment."""
+    # set defaults
+    if sweep_config is None:
+        sweep_config = deepcopy(SWEEP_CONFIG)
+        sweep_config["wandb_init_mode"] = "online"
+    if experiment == "":
+        experiment = "random_trades"
+
+    # load experiment function object
+    experiment_module = importlib.import_module(name="sweeps.experiments." + experiment)
+    experiment_fn = getattr(experiment_module, experiment)
+    sweep_config["experiment"] = experiment
+
+    # login (will be a noop if already logged in)
+    wandb.login()
+
+    # setup sweep
+    if sweep_id == "":
+        sweep_id = wandb.sweep(sweep=sweep_config, entity=entity, project=project)
+
+    # spawn agent & run the experiment function
+    wandb.agent(sweep_id=sweep_id, function=experiment_fn, entity=entity, project=project, count=count)
+
+    # cleanup
+    wandb.finish()
+
 
 if __name__ == "__main__":
     # parallel sweep parameters
@@ -23,10 +60,16 @@ if __name__ == "__main__":
         help="How many processes to spin up.",
     )
     parser.add_argument(
-        "--sweeps-per-process",
+        "--count-per-process",
         type=int,
         default=1,
-        help="How many sweeps to run in each process.",
+        help="How many sweep runs to run in each process.",
+    )
+    parser.add_argument(
+        "--sweep-id",
+        type=str,
+        default="",
+        help="Sweep ID from a wandb sweep controller.",
     )
     parser.add_argument(
         "--experiment",
@@ -49,8 +92,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     num_processes = args.num_processes
-    sweeps_per_process = args.sweeps_per_process
+    count_per_process = args.count_per_process
     experiment = args.experiment
+    sweep_id = args.sweep_id
     project = args.project
     entity = args.entity
 
@@ -61,17 +105,18 @@ if __name__ == "__main__":
     wandb.login()
 
     # create a sweep ID
-    sweep_id = wandb.sweep(sweep=sweep_config, entity=entity, project=project)
+    if sweep_id == "":
+        sweep_id = wandb.sweep(sweep=sweep_config, entity=entity, project=project)
 
     # create a pool of processes which will carry out sweeps
     pool = Pool()
-    for proc_id in range(num_processes):
+    for _ in range(num_processes):
         async_result = pool.apply_async(
             func=run_one_sweep,
             kwds={
                 "sweep_id": sweep_id,
                 "experiment": experiment,
-                "count": sweeps_per_process,
+                "count": count_per_process,
                 "sweep_config": sweep_config,
                 "entity": entity,
                 "project": project,

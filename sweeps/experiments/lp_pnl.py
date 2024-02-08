@@ -10,18 +10,21 @@ which is mitigated by profits from the yield source and fees.
 
 from __future__ import annotations
 
+import json
 import time
 from copy import deepcopy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 
 import numpy as np
-import wandb
 from fixedpointmath import FixedPoint
+from hyperlogs import ExtendedJSONEncoder
 
+import wandb
 from agent0.hyperdrive.agent import HyperdriveActionType
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 from agent0.hyperdrive.policies import PolicyZoo
-from utils import convert_run_config
+
+from .utils import convert_run_config
 
 
 def lp_pnl(config=None):
@@ -40,7 +43,7 @@ def lp_pnl(config=None):
         # log a combo of the two configs
         log_dict = deepcopy(asdict(exp_config))
         log_dict.update(run_config)
-        run.log(log_dict)
+        run.log(json.loads(json.dumps(log_dict, cls=ExtendedJSONEncoder)))
 
         ## Initialize primary objects
         total_daily_volume = exp_config.initial_liquidity * exp_config.daily_volume_percentage_of_liquidity

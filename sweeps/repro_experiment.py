@@ -6,8 +6,9 @@ import argparse
 import importlib
 from dataclasses import asdict
 
-import wandb
 from experiments.utils import convert_run_config, load_config
+
+import wandb
 
 
 def repro_experiment(entity, project, run_id):
@@ -16,8 +17,7 @@ def repro_experiment(entity, project, run_id):
     exp_config = convert_run_config(load_config(entity, project, run_id))
     exp_config.repro_run_id = run_id
 
-    # TODO: Remove the proposed_repo path once we adopt this fully
-    experiment_module = importlib.import_module(name="proposed_repo.experiments." + exp_config.experiment)
+    experiment_module = importlib.import_module(name="sweeps.experiments." + exp_config.experiment)
     getattr(experiment_module, exp_config.experiment)(asdict(exp_config))
     wandb.finish()
 
