@@ -317,6 +317,53 @@ matrix_formatted.columns = cols
 display(matrix_formatted.style.hide(axis="index"))
 
 # %%
+var_returns = []
+for experiment in df2.experiment.unique():
+    last_row = df2.loc[df2.experiment == experiment, :]
+    last_row = last_row.loc[last_row.block_number == last_row.block_number.max(),:]
+    apr = last_row.loc[last_row.username == "share price",].apr.iloc[0]
+    var_returns.append(apr)
+print(f"{len(var_returns)=}")
+print(f"average return = {sum(var_returns)/len(var_returns):.2%}")
+
+# %%
+# plot APR against most_variable
+plt.figure(figsize=(6,6))
+plt.grid(color='lightgrey', linestyle='--')
+plot_data = copy(df2.loc[idx, :]).sort_values(by=most_variable)
+for curve_fee in df2.CURVE_FEE.unique():
+    plot_idx = (plot_data.CURVE_FEE == curve_fee) & (plot_data[most_variable] < 0.225)
+    scatter_plot=plt.scatter(plot_data.loc[plot_idx, most_variable],plot_data.loc[plot_idx, "apr"], label=f'curve fee = {curve_fee:.2%}')
+    model = smf.ols(f"apr ~ {most_variable}", data=plot_data.loc[plot_idx,:]).fit()
+    # display(model.summary())
+    intercept = model.params.Intercept
+    print(f"{intercept=}")
+    coefs = model.params
+    predicted = coefs[0] + coefs[1] * plot_data.loc[plot_idx, most_variable]
+    print(f"{predicted=}")
+    plotcolor = scatter_plot.get_facecolor()
+    plt.plot(plot_data.loc[plot_idx, most_variable], predicted, color=plotcolor, alpha=0.5)
+plt.xlabel("Daily Volume as a Percentage of Liquidity")
+plt.ylabel("Return (APR)")
+plt.title(f"LP Profitability vs. Daily Volume as a Percentage of Liquidity")
+plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+plt.gca().xaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+ylim = plt.gca().get_ylim()
+ylim = 0.034, 0.05
+plt.gca().set_ylim(ylim)
+yticks = list(np.arange(0.035, ylim[1]+0.001, 0.001))
+plt.gca().set_yticks(yticks)
+xticks = list(np.arange(0, xlim[1]+0.05, 0.05))
+xticks[0] = 0.01
+plt.gca().set_xticks(xticks)
+xlim = plt.gca().get_xlim()
+xlim = xlim[0], 0.21
+# light grey dashed major ticks
+plt.gca().set_xlim(xlim)
+plt.legend()
+plt.show()
+
+# %%
 # plot APR against most_variable
 plot_data = copy(df2.loc[idx, :]).sort_values(by=most_variable)
 plt.scatter(plot_data.loc[:, most_variable],plot_data.loc[:, "apr"], label='LP return')

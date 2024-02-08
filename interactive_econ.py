@@ -353,7 +353,7 @@ print(f"  volume/day={exp.daily_volume_percentage_of_liquidity:,.2%} of TVL")
 time_passed_days = (pool_info.timestamp.iloc[-1] - pool_info.timestamp.iloc[0]).total_seconds() / 60 / 60 / 24
 print(f"time passed = {time_passed_days:.2f} days")
 apr_factor = 365 / time_passed_days
-print(f"  to scale APR from HPR we multiply by {apr_factor:,.2f} (365/{time_passed_days:.2f})")
+print(f"  APR = (1+HPR) ** {apr_factor:,.2f} - 1")
 print(f"  share price went from {pool_info.lp_share_price.iloc[0]:.4f} to {pool_info.lp_share_price.iloc[-1]:.7f}")
 
 # do return calculations
@@ -432,9 +432,8 @@ current_wallet.position = current_wallet.position.astype(float)
 current_wallet.pnl = current_wallet.pnl.astype(float)
 # add APR
 current_wallet["apr"] = Decimal(np.nan)
-current_wallet.loc[weth_index & not_inf, ["apr"]] = current_wallet.loc[weth_index & not_inf, ["hpr"]].values * Decimal(
-    apr_factor
-)
+hpr = current_wallet.loc[weth_index & not_inf, ["hpr"]].values
+current_wallet.loc[weth_index & not_inf, ["apr"]] = (1+hpr)**Decimal(apr_factor)-1
 
 results1 = current_wallet.loc[non_weth_index, exp.display_cols]
 results2 = current_wallet.loc[weth_index, exp.display_cols_with_hpr]
