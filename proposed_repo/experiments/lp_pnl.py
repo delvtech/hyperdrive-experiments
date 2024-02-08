@@ -7,7 +7,7 @@ The variable rate is chosen to have an average of 4.5% return, about equal to 20
 Goal: Demonstrate that LPs backing trades can result in negative returns,
 which is mitigated by profits from the yield source and fees.
 """
-# %%
+
 from __future__ import annotations
 
 import time
@@ -21,8 +21,7 @@ from fixedpointmath import FixedPoint
 from agent0.hyperdrive.agent import HyperdriveActionType
 from agent0.hyperdrive.interactive import InteractiveHyperdrive, LocalChain
 from agent0.hyperdrive.policies import PolicyZoo
-
-from .config import Config
+from utils import convert_run_config
 
 
 def lp_pnl(config=None):
@@ -34,14 +33,7 @@ def lp_pnl(config=None):
     with wandb.init(config=config, notes=experiment_notes, tags=experiment_tags, mode=mode) as run:
         ## Setup config
         run_config = run.config
-        exp_config = Config()
-        # merge overlapping run config settings into experiment config, with casting since wandb communicates with dicts
-        skip_keys = ["rng"]
-        for key, value in run_config.items():
-            if key not in skip_keys and hasattr(exp_config, key):
-                exp_type = type(asdict(exp_config)[key]) if value is not None else lambda x: None
-                if getattr(exp_config, key) != exp_type(value):
-                    setattr(exp_config, key, exp_type(value))
+        exp_config = convert_run_config(run_config)
         # if in a sweep, add sweep id to the run config dict
         if hasattr(run, "sweep_id"):
             run_config["sweep_id"] = run.sweep_id

@@ -3,14 +3,15 @@
 This example script could be extended to run sweeps in parallel on different CPUs, spot instances, etc.
 """
 
+from __future__ import annotations
+
 import argparse
 from copy import deepcopy
 from multiprocessing.pool import Pool
 
+import wandb
 from experiments import SWEEP_CONFIG
 from run_one_sweep import run_one_sweep
-
-import wandb
 
 if __name__ == "__main__":
     # parallel sweep parameters

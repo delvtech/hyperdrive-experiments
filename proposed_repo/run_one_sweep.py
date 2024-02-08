@@ -1,15 +1,13 @@
 """Sweep over a given experiment."""
+
 from __future__ import annotations
 
 import argparse
 import importlib
 from copy import deepcopy
-from typing import Callable
-
-import experiments
-from experiments import SWEEP_CONFIG
 
 import wandb
+from experiments import SWEEP_CONFIG
 
 
 def run_one_sweep(
@@ -21,16 +19,18 @@ def run_one_sweep(
     project: str = "agent0_sweep",
 ):
     """Create a wandb sweep for a given experiment."""
-    if experiment == "":
-        experiment_fn = experiments.random_trades
-    else:
-        # TODO: Remove the proposed_repo path once we adopt this fully
-        experiment_module = importlib.import_module(name="proposed_repo.experiments." + experiment)
-        experiment_fn = getattr(experiment_module, experiment)
-
+    # set defaults
     if sweep_config is None:
         sweep_config = deepcopy(SWEEP_CONFIG)
         sweep_config["wandb_init_mode"] = "online"
+    if experiment == "":
+        experiment = "random_trades"
+
+    # load experiment function object
+    # TODO: Remove the proposed_repo path once we adopt this fully
+    experiment_module = importlib.import_module(name="proposed_repo.experiments." + experiment)
+    experiment_fn = getattr(experiment_module, experiment)
+    sweep_config["experiment"] = experiment
 
     # login (will be a noop if already logged in)
     wandb.login()

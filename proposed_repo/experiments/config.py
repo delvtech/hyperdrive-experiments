@@ -1,5 +1,7 @@
 """Master config for experiments."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -31,6 +33,8 @@ class Config(InteractiveHyperdrive.Config):
     # misc extra
     num_agents: int = 1
     experiment_id: int = 0
+    experiment: str = ""
+    repro_run_id: str = ""
     randseed: int = 1234
     calc_pnl: bool = False
     wandb_init_mode: str = "online"  # "online", "offline", or "disabled"

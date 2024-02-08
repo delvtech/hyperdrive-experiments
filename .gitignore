@@ -1,6 +1,7 @@
 # Agent 0
 .crash_report
 *.parquet
+config.yaml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -1,5 +1,5 @@
 """Run a single experiment once."""
-# %%
+
 from __future__ import annotations
 
 import argparse
@@ -8,9 +8,8 @@ import os
 from dataclasses import asdict
 
 import experiments
-from fixedpointmath import FixedPoint
-
 import wandb
+from fixedpointmath import FixedPoint
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run one experiment.")
@@ -26,7 +25,7 @@ if __name__ == "__main__":
         help="If set, will use wandb.",
     )
     args = parser.parse_args()
-    experiment_name = args.experiment
+    experiment = args.experiment
     use_wandb = args.wandb
 
     # Experiment details
@@ -40,6 +39,7 @@ if __name__ == "__main__":
         initial_fixed_rate=FixedPoint("0.05"),
         curve_fee=FixedPoint("0.001"),
         flat_fee=FixedPoint("0.001"),
+        experiment=experiment,
         num_agents=2,
     )
 
@@ -52,8 +52,8 @@ if __name__ == "__main__":
 
     # Run the experiment
     # TODO: Remove the proposed_repo path once we adopt this fully
-    experiment_module = importlib.import_module(name="proposed_repo.experiments." + experiment_name)
-    getattr(experiment_module, experiment_name)(asdict(exp_config))
+    experiment_module = importlib.import_module(name="proposed_repo.experiments." + experiment)
+    getattr(experiment_module, experiment)(asdict(exp_config))
 
     if use_wandb:
         wandb.finish()
