@@ -6,6 +6,7 @@ from typing import NamedTuple
 Max = NamedTuple("Max", [("base", FixedPoint), ("bonds", FixedPoint)])
 GetMax = NamedTuple("GetMax", [("long", Max), ("short", Max)])
 
+
 def get_max(
     _interactive_hyperdrive: InteractiveHyperdrive,
     _share_price: FixedPoint,

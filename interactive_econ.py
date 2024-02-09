@@ -67,6 +67,7 @@ else:
 # config
 cols = ["block_number", "username", "position", "pnl"]
 
+
 @dataclass
 class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-class-docstring
     experiment_id: int = 0
@@ -92,6 +93,7 @@ class ExperimentConfig:  # pylint: disable=too-many-instance-attributes,missing-
 
     def calculate_values(self):
         self.term_seconds: int = 60 * 60 * 24 * self.term_days
+
 
 # %%
 # config
@@ -174,6 +176,7 @@ larry.add_liquidity(base=FixedPoint(exp.amount_of_liquidity))  # 10 million
 event_list = andy.execute_policy_action()
 for event in event_list:
     print(event)
+
 
 # %%
 # Random Rob does a buncha trades 🤪
