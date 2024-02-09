@@ -1,6 +1,8 @@
 """Utilities to check the environment we're running in."""
+
 import os
 import sys
+
 
 def running_interactive():
     try:
@@ -9,6 +11,7 @@ def running_interactive():
         return bool("ipykernel" in sys.modules and get_ipython())
     except ImportError:
         return False
+
 
 def running_wandb():
     # Check for a specific wandb environment variable

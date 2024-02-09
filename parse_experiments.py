@@ -1,4 +1,5 @@
 """Parse the experiments folder."""
+
 # %%
 from copy import copy
 from pathlib import Path
@@ -21,7 +22,7 @@ short_variable_names = {
     "FLAT_FEE": "flat fee",
     "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY": "volume",
     "FIXED_RATE": "rate",
-    "MINIMUM_TRADE_DAYS": "trade length"
+    "MINIMUM_TRADE_DAYS": "trade length",
 }
 
 # %%
@@ -112,7 +113,7 @@ for folder in EXPERIMENT_FOLDER.iterdir():
             # load it
             print(f"loading results from {file4} for experiment {experiment_id}")
             new_df = pd.read_json(file4, orient="records", lines=True)
-            new_df.index = pd.Index(data=[experiment_id],name="experiment")
+            new_df.index = pd.Index(data=[experiment_id], name="experiment")
             experiment_stats = pd.concat([experiment_stats, new_df], ignore_index=False)
         else:
             incomplete_runs.append(experiment_id)
@@ -211,7 +212,7 @@ var_list = [v for v in var_list if v in df2.columns]
 x_var = var_list[0]
 
 print("count")
-matrix_count = df2.loc[idx, var_list+["apr"]].pivot_table(
+matrix_count = df2.loc[idx, var_list + ["apr"]].pivot_table(
     index="CURVE_FEE", columns=[v for v in var_list if v != x_var], values=["apr"], aggfunc="count"
 )
 matrix_count.columns.names = [short_variable_names[v] if v else v for v in matrix_count.columns.names]
@@ -219,13 +220,13 @@ display(matrix_count)
 
 # %%
 print("return")
-matrix = df2.loc[idx, var_list+["apr"]].pivot_table(
+matrix = df2.loc[idx, var_list + ["apr"]].pivot_table(
     index="CURVE_FEE", columns=[v for v in var_list if v != x_var], values=["apr"], aggfunc="mean"
 )
 matrix.columns = matrix.columns.map(lambda x: f"{short_variable_names[var_list[1]]}={x[1]:,.1%}")
 # matrix.index = matrix.index.map(lambda x: f"{x:,.1%}")
 matrix.index = matrix.index.map(lambda x: f"{short_variable_names['CURVE_FEE']}={x:,.1%}")
-matrix.index.name = ''
+matrix.index.name = ""
 matrix = matrix.applymap(lambda x: f"{x:,.2%}")
 matrix.columns.names = [short_variable_names[v] if v else v for v in matrix.columns.names]
 display(matrix)
@@ -265,15 +266,20 @@ if matrix_count.max().max() > 1:
 
 # %%
 # parse variables
-variables_to_check_for_variability = ["CURVE_FEE", "FLAT_FEE", "MINIMUM_TRADE_DAYS", "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"]
-most_variable = ''
-least_variable = ''
+variables_to_check_for_variability = [
+    "CURVE_FEE",
+    "FLAT_FEE",
+    "MINIMUM_TRADE_DAYS",
+    "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY",
+]
+most_variable = ""
+least_variable = ""
 for variable in variables_to_check_for_variability:
     num_unique = df2[variable].nunique()
     print(f"{variable} has {num_unique} unique values")
-    if most_variable == '':
+    if most_variable == "":
         most_variable = variable
-    if least_variable == '':
+    if least_variable == "":
         least_variable = variable
     if num_unique > df2[most_variable].nunique():
         most_variable = variable
@@ -284,12 +290,10 @@ print(f"least variable is {least_variable}")
 
 # %%
 # little 1-d table
-matrix = df2.loc[idx, [most_variable, "apr"]].pivot_table(
-    columns=most_variable, values=["apr"], aggfunc="mean"
-)
+matrix = df2.loc[idx, [most_variable, "apr"]].pivot_table(columns=most_variable, values=["apr"], aggfunc="mean")
 matrix_formatted = matrix.copy()
 column_index = matrix.columns
-column_index.name = ''
+column_index.name = ""
 short_name = short_variable_names[most_variable]
 fmt = ",.1%" if short_name != "MINIMUM_TRADE_DAYS" else ",.0f"
 column_index = matrix.columns.map(lambda x: f"{short_name}={x:,.0f}")
@@ -317,22 +321,22 @@ display(matrix_formatted.style.hide(axis="index"))
 # %%
 # plot APR against most_variable
 plot_data = copy(df2.loc[idx, :]).sort_values(by=most_variable)
-plt.scatter(plot_data.loc[:, most_variable],plot_data.loc[:, "apr"], label='LP return')
+plt.scatter(plot_data.loc[:, most_variable], plot_data.loc[:, "apr"], label="LP return")
 plt.xlabel(short_variable_names[most_variable])
 plt.ylabel("Return (APR)")
 plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
 ylim = plt.gca().get_ylim()
 ylim = np.floor(ylim[0] * 1000) / 1000, np.ceil(ylim[1] * 1000) / 1000
 plt.gca().set_ylim(ylim)
-yticks = np.arange(min(ylim[0],0.034), ylim[1]+0.001, 0.001)  # 0.1% increment
+yticks = np.arange(min(ylim[0], 0.034), ylim[1] + 0.001, 0.001)  # 0.1% increment
 plt.gca().set_yticks(yticks)
 x_vars = plot_data.loc[:, most_variable].values
 m, b = np.polyfit(x_vars, plot_data.loc[:, "apr"], 1)
-x_vars_with_zero = np.append(x_vars,0)
+x_vars_with_zero = np.append(x_vars, 0)
 y_fit = m * x_vars_with_zero + b
-plt.plot(x_vars_with_zero, y_fit, color='orange')
+plt.plot(x_vars_with_zero, y_fit, color="orange")
 # plot horizontal line
-plt.axhline(0.035, color='red', label="Vault variable return", alpha=1, linestyle='--')
+plt.axhline(0.035, color="red", label="Vault variable return", alpha=1, linestyle="--")
 plt.title(f"LP Profitability vs. {short_variable_names[most_variable]}")
 plt.legend()
 plt.show()
@@ -340,10 +344,10 @@ plt.show()
 # %%
 # plot experiment_stats[experiment_id, "total_volume"] vs. "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"
 plot_data = copy(df2.loc[idx, :])
-y_data = [experiment_stats.loc[x,"total_volume"] for x in plot_data.loc[:, "EXPERIMENT_ID"]]
+y_data = [experiment_stats.loc[x, "total_volume"] for x in plot_data.loc[:, "EXPERIMENT_ID"]]
 plot_data["total_volume"] = y_data
 x_data = plot_data.loc[:, "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"]
-p = plt.scatter(x_data,y_data, label='total_volume')
+p = plt.scatter(x_data, y_data, label="total_volume")
 color = p.get_facecolor()
 p.set_edgecolor(color)
 p.set_facecolor("none")
@@ -355,16 +359,24 @@ plt.title(f"total_volume vs. target_volume")
 plt.show()
 
 # groupby DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY, show min and max of total_volume
-minmaxvol = plot_data.groupby("DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY").agg(
-    min_total_volume=("total_volume", "min"),
-    max_total_volume=("total_volume", "max"),
-).reset_index()
+minmaxvol = (
+    plot_data.groupby("DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY")
+    .agg(
+        min_total_volume=("total_volume", "min"),
+        max_total_volume=("total_volume", "max"),
+    )
+    .reset_index()
+)
 minmaxvol.rename(columns={"DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY": "target_volume"}, inplace=True)
 minmaxvol["max_vs_min"] = minmaxvol.max_total_volume - minmaxvol.min_total_volume
 minmaxvol["max_vs_min_pct"] = minmaxvol.max_vs_min / minmaxvol.min_total_volume
-display(minmaxvol.style.hide(axis="index")
-    .format(subset=["min_total_volume", "max_total_volume", "max_vs_min", "max_vs_min_pct"],formatter="{:" + FLOAT_FMT + "}")
-    .format(subset=["target_volume","max_vs_min_pct"],formatter="{:,.2%}")
+display(
+    minmaxvol.style.hide(axis="index")
+    .format(
+        subset=["min_total_volume", "max_total_volume", "max_vs_min", "max_vs_min_pct"],
+        formatter="{:" + FLOAT_FMT + "}",
+    )
+    .format(subset=["target_volume", "max_vs_min_pct"], formatter="{:,.2%}")
 )
 
 # %%
@@ -390,22 +402,22 @@ for curve_fee in np.sort(df2.loc[idx, "CURVE_FEE"].unique()):
         ylim = plt.gca().get_ylim()
         ylim = np.floor(ylim[0] * 1000) / 1000, np.ceil(ylim[1] * 1000) / 1000
         plt.gca().set_ylim(ylim)
-        yticks = np.arange(min(ylim[0],0.034), ylim[1]+0.001, 0.001)  # 0.1% increment
+        yticks = np.arange(min(ylim[0], 0.034), ylim[1] + 0.001, 0.001)  # 0.1% increment
         plt.gca().set_yticks(yticks)
         # use sm to get linear regression line of best fit
         model = sm.OLS(y_data, sm.add_constant(x_data)).fit()
         # plot linear regression line
         # plt.plot(x_vars_with_zero, y_fit, color='orange')
-        plt.plot(x_data, model.predict(sm.add_constant(x_data)), color='orange')
-        plt.axhline(0.035, color='red', label="Vault variable return", alpha=1, linestyle='--')
+        plt.plot(x_data, model.predict(sm.add_constant(x_data)), color="orange")
+        plt.axhline(0.035, color="red", label="Vault variable return", alpha=1, linestyle="--")
         plt.title(f"LP Profitability vs. {short_variable_names['DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY']}")
         plt.legend()
         plt.show()
         slope = model.params[1]
-        records.append([curve_fee,flat_fee,slope])
+        records.append([curve_fee, flat_fee, slope])
 
 # %%
-df3 = pd.DataFrame(records, columns=["CURVE_FEE","FLAT_FEE","SLOPE"])
+df3 = pd.DataFrame(records, columns=["CURVE_FEE", "FLAT_FEE", "SLOPE"])
 # df3 = df3.set_index(["CURVE_FEE","FLAT_FEE"])
 display(df3)
 
@@ -415,7 +427,7 @@ for curve_fee in np.sort(df2.loc[idx, "CURVE_FEE"].unique()):
     subidx = df3.CURVE_FEE == curve_fee
     x_data = df3.loc[subidx, "FLAT_FEE"]
     y_data = df3.loc[subidx, "SLOPE"]
-    p = plt.scatter(x_data,y_data,label=f"curve_fee={curve_fee:.2%}")
+    p = plt.scatter(x_data, y_data, label=f"curve_fee={curve_fee:.2%}")
 plt.xlabel(short_variable_names["FLAT_FEE"])
 plt.ylabel("Slope")
 plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
@@ -427,7 +439,7 @@ for flat_fee in np.sort(df2.loc[idx, "FLAT_FEE"].unique()):
     subidx = df3.FLAT_FEE == flat_fee
     x_data = df3.loc[subidx, "CURVE_FEE"]
     y_data = df3.loc[subidx, "SLOPE"]
-    p = plt.scatter(x_data,y_data,label=f"flat_fee={flat_fee:.2%}")
+    p = plt.scatter(x_data, y_data, label=f"flat_fee={flat_fee:.2%}")
 plt.xlabel(short_variable_names["CURVE_FEE"])
 plt.ylabel("Slope")
 plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
@@ -459,7 +471,7 @@ for abs_fixed_v_variable in np.sort(df2.loc[idx, "ABS_FIXED_V_VARIABLE"].apply(l
     X_with_const = add_constant(df2temp.loc[subidx, "CURVE_FEE_X_DAILY_VOLUME"])
     temp_model = sm.OLS(df2temp.loc[subidx, "apr"], X_with_const).fit()
     predictions = temp_model.predict(X_with_const)
-    plt.plot(df2temp.loc[subidx, "CURVE_FEE_X_DAILY_VOLUME"],predictions,color=color)
+    plt.plot(df2temp.loc[subidx, "CURVE_FEE_X_DAILY_VOLUME"], predictions, color=color)
 plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
 plt.xlabel("CURVE_FEE_X_DAILY_VOLUME")
 plt.ylabel("apr")
@@ -468,24 +480,26 @@ plt.show()
 
 # %%
 # prepare rate paths
-min_timestamp_by_experiment = rate_paths.groupby('experiment')['timestamp'].min()
-rate_paths.loc[:,"adjusted_timestamp"] = rate_paths["timestamp"] - min_timestamp_by_experiment[rate_paths["experiment"]].values
-rate_paths['adjusted_timestamp_seconds'] = rate_paths['adjusted_timestamp'].dt.total_seconds()
-rate_paths['adjusted_timestamp_days'] = rate_paths['adjusted_timestamp_seconds'] / (60 * 60 * 24)
+min_timestamp_by_experiment = rate_paths.groupby("experiment")["timestamp"].min()
+rate_paths.loc[:, "adjusted_timestamp"] = (
+    rate_paths["timestamp"] - min_timestamp_by_experiment[rate_paths["experiment"]].values
+)
+rate_paths["adjusted_timestamp_seconds"] = rate_paths["adjusted_timestamp"].dt.total_seconds()
+rate_paths["adjusted_timestamp_days"] = rate_paths["adjusted_timestamp_seconds"] / (60 * 60 * 24)
 rate_paths["fixed_rate"] = rate_paths["fixed_rate"].astype(float)
 
 # %%
 # plot rate paths
-fig = plt.figure(figsize=(16/2, 9/2))
+fig = plt.figure(figsize=(16 / 2, 9 / 2))
 ax = plt.gca()
-unique_experiments = rate_paths['experiment'].unique()
+unique_experiments = rate_paths["experiment"].unique()
 rate_volatility_records = []
 for experiment in unique_experiments[:20]:
-    idx = rate_paths['experiment'] == experiment
-    rate_paths.loc[idx].plot(x='adjusted_timestamp_days', y='fixed_rate', label=experiment, alpha=0.2, ax=ax)
+    idx = rate_paths["experiment"] == experiment
+    rate_paths.loc[idx].plot(x="adjusted_timestamp_days", y="fixed_rate", label=experiment, alpha=0.2, ax=ax)
     rate_volatility = rate_paths.loc[idx, "fixed_rate"].std()
-    volume = df1.loc[df1.experiment==experiment,"DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"].iloc[0]
-    fee = df1.loc[df1.experiment==experiment,"CURVE_FEE"].iloc[0]
+    volume = df1.loc[df1.experiment == experiment, "DAILY_VOLUME_PERCENTAGE_OF_LIQUIDITY"].iloc[0]
+    fee = df1.loc[df1.experiment == experiment, "CURVE_FEE"].iloc[0]
     # print(f"{rate_volatility=}")
     rate_volatility_records.append([experiment, rate_volatility, volume, fee])
 # disable legend
@@ -496,12 +510,12 @@ ylim = plt.gca().get_ylim()
 ylim = 0, ylim[1]
 plt.gca().set_ylim(ylim)
 inc = 0.005  # 0.5% increment
-yticks = np.arange(ylim[0], ylim[1]+inc, inc)
+yticks = np.arange(ylim[0], ylim[1] + inc, inc)
 plt.gca().set_yticks(yticks)
-plt.xlabel('Time (days)')
+plt.xlabel("Time (days)")
 plt.xticks(rotation=45)
-plt.xticks(np.append(np.arange(0, 360, 30),365))
-plt.ylabel('Fixed Rate')
+plt.xticks(np.append(np.arange(0, 360, 30), 365))
+plt.ylabel("Fixed Rate")
 plt.ylim(0, 0.06)
 plt.show()
 
@@ -523,13 +537,13 @@ plt.show()
 bins = np.arange(0.0175, 0.055, 0.0025)
 # histogram of starting rate
 fig = plt.figure()
-first_row_in_each_experiment = rate_paths.groupby('experiment').first()
-h1 = first_row_in_each_experiment['fixed_rate'].hist(label="starting fixed rate", bins=bins)
+first_row_in_each_experiment = rate_paths.groupby("experiment").first()
+h1 = first_row_in_each_experiment["fixed_rate"].hist(label="starting fixed rate", bins=bins)
 
 # histogram of ending rate
 # fig = plt.figure()
-last_row_in_each_experiment = rate_paths.groupby('experiment').last()
-h2 = last_row_in_each_experiment['fixed_rate'].hist(label="ending fixed rate", bins=bins, alpha=0.5)
+last_row_in_each_experiment = rate_paths.groupby("experiment").last()
+h2 = last_row_in_each_experiment["fixed_rate"].hist(label="ending fixed rate", bins=bins, alpha=0.5)
 plt.legend()
 plt.show()
 
@@ -539,10 +553,12 @@ delta = 0.00005
 MIN_RATE = 0.035 - delta
 MAX_RATE = 0.035 + delta
 rate_paths["day"] = rate_paths["timestamp"].dt.day
-agg_data = rate_paths.groupby('day')['fixed_rate'].agg(['mean', 'std']).reset_index()
-rates_by_day_and_experiment = rate_paths.groupby(['day', 'experiment'])['fixed_rate'].mean().reset_index()
-good_ending_rates = (last_row_in_each_experiment.fixed_rate > MIN_RATE) & (last_row_in_each_experiment.fixed_rate < MAX_RATE)
-filtered_rows = last_row_in_each_experiment.loc[~good_ending_rates,:]
+agg_data = rate_paths.groupby("day")["fixed_rate"].agg(["mean", "std"]).reset_index()
+rates_by_day_and_experiment = rate_paths.groupby(["day", "experiment"])["fixed_rate"].mean().reset_index()
+good_ending_rates = (last_row_in_each_experiment.fixed_rate > MIN_RATE) & (
+    last_row_in_each_experiment.fixed_rate < MAX_RATE
+)
+filtered_rows = last_row_in_each_experiment.loc[~good_ending_rates, :]
 bad_experiments = list(filtered_rows.index)
 print(f"bad experiments defined as ending rates outside of {MIN_RATE:.3%} and {MAX_RATE:.3%}:")
 print(f"  we have {len(bad_experiments)} bad experiments: {bad_experiments}")
@@ -550,10 +566,14 @@ print(f"  we have {len(bad_experiments)} bad experiments: {bad_experiments}")
 if len(bad_experiments) > 0:
     # plot rate paths for bad experiments
     for experiment in bad_experiments:
-        idx = rates_by_day_and_experiment['experiment'] == experiment
-        plt.plot(rates_by_day_and_experiment.loc[idx, 'day'], rates_by_day_and_experiment.loc[idx, 'fixed_rate'], label=experiment)
-    plt.xlabel('Day')
-    plt.ylabel('Ending Fixed Rate')
+        idx = rates_by_day_and_experiment["experiment"] == experiment
+        plt.plot(
+            rates_by_day_and_experiment.loc[idx, "day"],
+            rates_by_day_and_experiment.loc[idx, "fixed_rate"],
+            label=experiment,
+        )
+    plt.xlabel("Day")
+    plt.ylabel("Ending Fixed Rate")
     plt.show()
 
 # %%
@@ -564,11 +584,7 @@ display(df1temp)
 df2temp = df2.loc[df2["experiment"] == experiment]
 display(
     df2temp.style.format(
-        subset=[
-            col
-            for col in df2temp.columns
-            if df2temp.dtypes[col] == "float64" and col not in ["hpr", "apr"]
-        ],
+        subset=[col for col in df2temp.columns if df2temp.dtypes[col] == "float64" and col not in ["hpr", "apr"]],
         formatter="{:" + FLOAT_FMT + "}",
     )
     .hide(axis="index")

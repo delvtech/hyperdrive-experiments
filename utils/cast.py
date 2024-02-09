@@ -1,5 +1,6 @@
 from fixedpointmath import FixedPoint
 
+
 def safe_cast(_type: type, _value: str, debug: bool = False):
     if debug:
         print(f"trying to cast {_value} to {_type}")

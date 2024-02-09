@@ -4,12 +4,14 @@ import numpy as np
 
 GOOD_PROCESSES = 100 if not sys.argv[1] else int(sys.argv[1])
 
+
 def get_anvil_cpu_usage():
     # Retrieves CPU usage and PID for processes with "anvil" in their command
-    process_output = subprocess.check_output(['ps', '-eo', '%cpu,pid,cmd']).decode()
-    process_list = [line.split(None, 2) for line in process_output.split('\n')[1:] if 'anvil' in line]
+    process_output = subprocess.check_output(["ps", "-eo", "%cpu,pid,cmd"]).decode()
+    process_list = [line.split(None, 2) for line in process_output.split("\n")[1:] if "anvil" in line]
 
     return [(float(cpu), pid) for cpu, pid, _ in process_list]
+
 
 def find_cutoff(cpu_usage, min_val, max_val, target_count):
     working_cutoffs = []
@@ -35,6 +37,7 @@ def find_cutoff(cpu_usage, min_val, max_val, target_count):
     if len(working_cutoffs) == 0:
         return None
     return np.mean(working_cutoffs)
+
 
 # Get anvil cpu usage
 cpu_usage = get_anvil_cpu_usage()

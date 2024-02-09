@@ -1,4 +1,5 @@
 """Dark mode for matplotlib - orange version."""
+
 import shutil
 
 import matplotlib as mpl

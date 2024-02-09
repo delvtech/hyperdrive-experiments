@@ -1,4 +1,5 @@
 """View experiment results."""
+
 # %%
 from pathlib import Path
 

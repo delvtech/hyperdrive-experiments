@@ -1,4 +1,5 @@
 """View experiment results."""
+
 # %%
 from pathlib import Path
 
@@ -18,7 +19,7 @@ pool_info = pd.read_parquet(experiment_path / "pool_info.parquet")
 
 pool_info.plot(
     x="timestamp",
-    y=["fixed_rate","variable_rate"],
+    y=["fixed_rate", "variable_rate"],
 )
 plt.gca().yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
 # get major ticks every 0.5%

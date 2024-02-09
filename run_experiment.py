@@ -9,6 +9,7 @@ import pandas as pd
 
 # pylint: disable=redefined-outer-name,invalid_name
 
+
 def running_interactive():
     try:
         from IPython.core.getipython import get_ipython  # pylint: disable=import-outside-toplevel
@@ -16,6 +17,7 @@ def running_interactive():
         return bool("ipykernel" in sys.modules and get_ipython())
     except ImportError:
         return False
+
 
 # %%
 EXPERIMENTS_DIR = "./runs"
@@ -44,11 +46,8 @@ if not os.path.exists(RUNS_TABLE_FILE):
     runs_table = pd.DataFrame(
         data=nonrandom_combinations_tiled,
         columns=nonrandom_params.keys(),
-        index=pd.Index(
-            data=range(len(nonrandom_combinations_tiled)),
-            name="experiment_id"
-            )
-        )
+        index=pd.Index(data=range(len(nonrandom_combinations_tiled)), name="experiment_id"),
+    )
     # Create the EPOCH column
     runs_table["EPOCH"] = np.repeat(np.arange(EPOCHS), len(nonrandom_combinations))
 
