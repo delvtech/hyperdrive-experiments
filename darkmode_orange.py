@@ -1,7 +1,5 @@
 """Dark mode for matplotlib - orange version."""
 
-import shutil
-
 import matplotlib as mpl
 
 # Plotting defaults
@@ -30,7 +28,6 @@ LARGESIZE = "large"
 LEGENDLOC = "best"
 LINEWIDTH = 0.6  # 0.6
 MARGIN = 0.05
-MATHTEXT = shutil.which("latex") is not None  # True if latex is installed, as required by matplotlib
 SMALLSIZE = "medium"
 TITLEWEIGHT = "bold"
 TICKDIR = "out"
@@ -42,15 +39,13 @@ TICKWIDTHRATIO = 0.8  # very slight width reduction
 TITLEPAD = 5.0  # default is 6.0, previously was 3.0
 ZLINES = 2  # default zorder for lines
 ZPATCHES = 1
+DPI = 200
 
 # Overrides of matplotlib default style
 rc_params = {
     "axes.axisbelow": GRIDBELOW,
-    "axes.formatter.use_mathtext": MATHTEXT,
     "axes.grid": True,  # enable lightweight transparent grid by default
     "axes.grid.which": "major",
-    "axes.edgecolor": BLACK,
-    "axes.labelcolor": BLACK,
     "axes.labelpad": LABELPAD,  # more compact
     "axes.labelsize": SMALLSIZE,
     "axes.labelweight": "normal",
@@ -63,8 +58,7 @@ rc_params = {
     "errorbar.capsize": 3.0,
     "figure.autolayout": False,
     "figure.figsize": (4.0, 4.0),  # for interactife backends
-    "figure.dpi": 100,
-    "figure.facecolor": "#f4f4f4",  # similar to MATLAB interface
+    "figure.dpi": DPI,
     "figure.titlesize": LARGESIZE,
     "figure.titleweight": TITLEWEIGHT,
     "font.family": FONTNAME,
@@ -101,14 +95,11 @@ rc_params = {
     "mathtext.tt": "monospace",
     "patch.linewidth": LINEWIDTH,
     "savefig.directory": "",  # use the working directory
-    "savefig.dpi": 1000,  # use academic journal recommendation
-    "savefig.facecolor": WHITE,  # use white instead of 'auto'
+    "savefig.dpi": DPI,
     "savefig.format": "png",  # use vector graphics
     "savefig.transparent": False,
     "savefig.bbox": "tight",
     "savefig.edgecolor": "none",
-    "text.usetex": MATHTEXT,
-    "xtick.color": BLACK,
     "xtick.direction": TICKDIR,
     "xtick.labelsize": SMALLSIZE,
     "xtick.major.pad": TICKPAD,
@@ -118,7 +109,6 @@ rc_params = {
     "xtick.minor.size": TICKLEN * TICKLENRATIO,
     "xtick.minor.width": LINEWIDTH * TICKWIDTHRATIO,
     "xtick.minor.visible": TICKMINOR,
-    "ytick.color": BLACK,
     "ytick.direction": TICKDIR,
     "ytick.labelsize": SMALLSIZE,
     "ytick.major.pad": TICKPAD,
@@ -129,19 +119,20 @@ rc_params = {
     "ytick.minor.width": LINEWIDTH * TICKWIDTHRATIO,
     "ytick.minor.visible": TICKMINOR,
     "lines.solid_capstyle": "round",
+    "axes.edgecolor": ORANGE,
+    "axes.facecolor": BLACK,
+    "axes.labelcolor": WHITE,
+    "figure.facecolor": GREY,
+    "patch.edgecolor": GREY,
+    "patch.force_edgecolor": True,
+    "text.color": WHITE,
+    "xtick.color": BLUE,
+    "ytick.color": BLUE,
+    "savefig.facecolor": GREY,
 }
 
 # Dark mode
-rc_params.update({"axes.edgecolor": ORANGE})  # LIGHTGREY
-rc_params.update({"axes.facecolor": BLACK})  # GREY
-rc_params.update({"axes.labelcolor": WHITE})
-rc_params.update({"figure.facecolor": GREY})
-rc_params.update({"patch.edgecolor": GREY})
-rc_params.update({"patch.force_edgecolor": True})
-rc_params.update({"text.color": WHITE})
-rc_params.update({"xtick.color": BLUE})  # LIGHTGREY
-rc_params.update({"ytick.color": BLUE})  # LIGHTGREY
-rc_params.update({"savefig.facecolor": GREY})
+
 
 # Set the params
 mpl.rcParams.update(rc_params)
