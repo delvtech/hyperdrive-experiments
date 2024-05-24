@@ -72,75 +72,79 @@ def trade_liq(interface:HyperdriveReadWriteInterface, agent:LocalHyperdriveAgent
 
 # sourcery skip: merge-list-append, move-assign-in-block
 YEAR_IN_SECONDS = 31_536_000
-TIME_STRETCH_LIST = [0.05, 0.1, 0.2]
-TRADE_PORTION_ONE = 0
+TIME_STRETCH_APR = 0.2
+TRADE_PORTION = -1  # 100% short
+STEPS = 12
 
 chain = LocalChain(LocalChain.Config(chain_port=10_000, db_port=10_001))
 
 # %%
+# liquidity = FixedPoint(10_000)
+# minimum_share_reserves = max(liquidity*FixedPoint(1/10_000),FixedPoint(1))
 liquidity = FixedPoint(100)
 minimum_share_reserves = max(liquidity*FixedPoint(1/10_000),FixedPoint(0.001))
 print(f"{minimum_share_reserves=}")
 
 # %%
-trade_portion_list = [*np.arange(0.1, 1.1, 0.1)]
-trade_portion_list += [-x for x in trade_portion_list]  # add negative portions
+records = []
+print(f"Time stretch APR: {TIME_STRETCH_APR}")
+interactive_config = LocalHyperdrive.Config(
+    position_duration=YEAR_IN_SECONDS,  # 1 year term
+    governance_lp_fee=FixedPoint(0.1),
+    curve_fee=FixedPoint(0.01),
+    flat_fee=FixedPoint(0),
+    initial_liquidity=liquidity,
+    initial_fixed_apr=FixedPoint(TIME_STRETCH_APR),
+    initial_time_stretch_apr=FixedPoint(TIME_STRETCH_APR),
+    factory_min_fixed_apr=FixedPoint(0.001),
+    factory_max_fixed_apr=FixedPoint(1000),
+    factory_min_time_stretch_apr=FixedPoint(0.001),
+    factory_max_time_stretch_apr=FixedPoint(1000),
+    calc_pnl=False,
+    minimum_share_reserves=FixedPoint(0.0001),
+    factory_max_circuit_breaker_delta=FixedPoint(1000),
+    circuit_breaker_delta=FixedPoint(10),
+)
+hyperdrive:LocalHyperdrive = LocalHyperdrive(chain, interactive_config)
+agent:LocalHyperdriveAgent = hyperdrive.init_agent(base=FixedPoint(1e18), eth=FixedPoint(1e18))
+interface = hyperdrive.interface
+time_stretch = interface.current_pool_state.pool_config.time_stretch
+print("Time stretch: %s", time_stretch)
 
 all_results = pd.DataFrame()
-for trial,TIME_STRETCH_APR in enumerate(TIME_STRETCH_LIST):
-    records = []
-    print(f"Time stretch APR: {TIME_STRETCH_APR}")
-    interactive_config = LocalHyperdrive.Config(
-        position_duration=YEAR_IN_SECONDS,  # 1 year term
-        governance_lp_fee=FixedPoint(0.1),
-        curve_fee=FixedPoint(0.01),
-        flat_fee=FixedPoint(0),
-        initial_liquidity=liquidity,
-        initial_fixed_apr=FixedPoint(TIME_STRETCH_APR),
-        initial_time_stretch_apr=FixedPoint(TIME_STRETCH_APR),
-        factory_min_fixed_apr=FixedPoint(0.001),
-        factory_max_fixed_apr=FixedPoint(1000),
-        factory_min_time_stretch_apr=FixedPoint(0.001),
-        factory_max_time_stretch_apr=FixedPoint(1000),
-        calc_pnl=False,
-        minimum_share_reserves=minimum_share_reserves,
-    )
-    hyperdrive:LocalHyperdrive = LocalHyperdrive(chain, interactive_config)
-    agent:LocalHyperdriveAgent = hyperdrive.init_agent(base=FixedPoint(1e18), eth=FixedPoint(1e18))
-    interface = hyperdrive.interface
-    time_stretch = interface.current_pool_state.pool_config.time_stretch
-    print("Time stretch: %s", time_stretch)
-
-    # do a specific trade
-    max_long = interface.calc_max_long(budget=FixedPoint(1e18))
-    max_short = interface.calc_max_short(budget=FixedPoint(1e18))
-    price, rate, base_traded, bonds_traded, trade_size = trade(interface, agent, TRADE_PORTION_ONE, max_long, max_short)
-    records.append((trial, "first", interface.calc_effective_share_reserves(), trade_size, base_traded, bonds_traded, TRADE_PORTION_ONE, price, rate, TIME_STRETCH_APR, interface.current_pool_state.pool_info.bond_reserves, interface.current_pool_state.pool_info.share_reserves))
-    price, rate = trade_liq(interface, agent, liquidity)
-    records.append((trial, "addliq", interface.calc_effective_share_reserves(), trade_size, None, None, TRADE_PORTION_ONE, price, rate, TIME_STRETCH_APR, interface.current_pool_state.pool_info.bond_reserves, interface.current_pool_state.pool_info.share_reserves))
-    del price, rate, trade_size
-
-    # save the snapshot
-    chain.save_snapshot()
-
+for step in range(STEPS):
     # do a range of trades
     max_short_two = interface.calc_max_short(budget=FixedPoint(1e18))
     max_long_two = interface.calc_max_long(budget=FixedPoint(1e18))
-    for trade_portion_two in trade_portion_list:
-        chain.load_snapshot()
-        price, rate, base_traded, bonds_traded, trade_size = trade(interface, agent, trade_portion_two, max_long_two, max_short_two)
-        records.append((trial, "second", interface.calc_effective_share_reserves(), trade_size, base_traded, bonds_traded, trade_portion_two, price, rate, TIME_STRETCH_APR, interface.current_pool_state.pool_info.bond_reserves, interface.current_pool_state.pool_info.share_reserves))
-        print("trade_portion=%s, rate=%s", trade_portion_two, rate)
-    columns = ["trial", "type", "liquidity", "trade_size", "base_traded", "bonds_traded", "portion", "price", "rate", "time_stretch_apr", "bond_reserves", "share_reserves"]
+    price, rate = trade_liq(interface, agent, liquidity*FixedPoint(2**step))
+    records.append((step, "addliq", interface.calc_effective_share_reserves(), liquidity, None, None, TRADE_PORTION, price, rate, TIME_STRETCH_APR, interface.current_pool_state.pool_info.bond_reserves, interface.current_pool_state.pool_info.share_reserves))
+    price, rate, base_traded, bonds_traded, trade_size = trade(interface, agent, TRADE_PORTION, max_long_two, max_short_two)
+    records.append((step, "short", interface.calc_effective_share_reserves(), trade_size, base_traded, bonds_traded, TRADE_PORTION, price, rate, TIME_STRETCH_APR, interface.current_pool_state.pool_info.bond_reserves, interface.current_pool_state.pool_info.share_reserves))
+    print(f"trade_portion={TRADE_PORTION}, rate={rate}")
+    columns = ["step", "type", "liquidity", "trade_size", "base_traded", "bonds_traded", "portion", "price", "rate", "time_stretch_apr", "bond_reserves", "share_reserves"]
     new_result = pd.DataFrame.from_records(records, columns=columns)
     display(new_result)
     all_results = pd.concat([all_results, new_result], ignore_index=True, axis=0)
 
-all_results.to_csv("discoverability.csv", index=False)
+all_results.to_csv("highest_rate.csv", index=False)
+
+# %%
+# read back in
+all_results = pd.read_csv("highest_rate.csv")
+
+# %%
+fig, axs = plt.subplots(1,2, figsize=(9, 6), sharey=True)
+fig.text(0.5, 0.93, "Highest rate achievable as liquidity increases", ha='center', fontsize=14)
+# delete horizontal gap
+fig.subplots_adjust(wspace=0)
+sns.lineplot(x="share_reserves", y="rate", data=all_results.loc[all_results.type=="short",:], marker="o", ax=axs[0])
+axs[0].set_title("linear-linear", weight="normal")
+sns.lineplot(x="share_reserves", y="rate", data=all_results.loc[all_results.type=="short",:], marker="o", ax=axs[1])
+plt.xscale("log")
+axs[1].set_title("linear-log", weight="normal")
 
 # %%
 # rate vs. dollars
-all_results = pd.read_csv("discoverability.csv")
 X_VAL = "trade_size"  # one of trade_size, base_traded, bonds_traded
 X_TITLE = X_VAL.replace("_", " ")
 palette = sns.color_palette("colorblind")
