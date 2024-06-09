@@ -1,4 +1,6 @@
 # %%
+import datetime
+import os
 import sys
 
 import matplotlib.pyplot as plt
@@ -31,6 +33,36 @@ else:  # being run from the terminal or something similar
 
 # pylint: disable=missing-function-docstring, missing-return-type-doc, missing-return-doc, redefined-outer-name, line-too-long, wildcard-import, bare-except
 # ruff: noqa: D103
+
+def display_pnl(agent0,agent1,verbose=False):
+    pos0 = agent0.get_positions()
+    pos1 = agent1.get_positions()
+    hist0 = agent0.get_trade_events()
+    hist1 = agent1.get_trade_events()
+    if verbose:
+        cols = ["token_type", "token_balance", "unrealized_value", "realized_value", "pnl"]
+        print("agent0 positions")
+        display(pos0[cols])
+        print("agent1 positions")
+        display(pos1[cols])
+    # calculate spend by summing up only negative values
+    spend0 = -hist0.loc[hist0.base_delta < 0, "base_delta"].sum()
+    spend1 = -hist1.loc[hist1.base_delta < 0, "base_delta"].sum()
+    # calculate return by summing up only positive values
+    return0 = hist0.loc[hist0.base_delta > 0, "base_delta"].sum()
+    return1 = hist1.loc[hist1.base_delta > 0, "base_delta"].sum()
+    unrealized0 = pos0.unrealized_value.sum()
+    unrealized1 = pos1.unrealized_value.sum()
+    pnl0 = (return0 + unrealized0) - spend0
+    pnl1 = (return1 + unrealized1) - spend1
+    roi0 = pnl0 / spend0
+    roi1 = pnl1 / spend1
+    print(f"agent0 PNL: {pnl0} on spend of {spend0} for an ROI of {roi0:.6%}")
+    print(f"agent1 PNL: {pnl1} on spend of {spend1} for an ROI of {roi1:.6%}")
+
+    pnl_table = pd.DataFrame({"pnl": [pnl0, pnl1], "spend": [spend0, spend1], "roi": [roi0, roi1]}, index=["lp", "attacker"])
+    display(pnl_table.style.format(subset=["pnl", "spend"], formatter="{:,.3f}").format(subset=["roi"], formatter="{:,.5%}"))
+    return pos0, pos1, pnl0, pnl1, spend0, spend1, roi0, roi1
 
 # %%
 def calc_price_and_rate(interface:HyperdriveReadWriteInterface):
@@ -72,106 +104,137 @@ def trade_liq(interface:HyperdriveReadWriteInterface, agent:LocalHyperdriveAgent
 
 # sourcery skip: merge-list-append, move-assign-in-block
 YEAR_IN_SECONDS = 31_536_000
-TIME_STRETCH_APR = 0.05
-INITIAL_RATE = 0.01
-UPPER_RATE = 0.085
+TIME_STRETCH_LIST = [0.01, 0.05, 0.1, 0.2]
+# TIME_STRETCH_LIST = [0.01, 0.05]
+# TIME_STRETCH_APR = 0.01
+# DELTA_LIST = [0.01, 0.03, 0.05, 0.07, 0.09, 0.11, 0.13, 0.15]
+# DELTA = 0.17
 TRADE_PORTION = -1  # 100% short
 STEPS = 12
-
-chain = LocalChain(LocalChain.Config(chain_port=10_000, db_port=10_001))
 
 # %%
 # liquidity = FixedPoint(10_000)
 # minimum_share_reserves = max(liquidity*FixedPoint(1/10_000),FixedPoint(1))
-liquidity = FixedPoint(100)
-starting_amount = FixedPoint(13)
-minimum_share_reserves = max(liquidity*FixedPoint(1/10_000),FixedPoint(0.001))
+start_liq = FixedPoint(100_000)
+liquidity = FixedPoint(os.environ["LIQUIDITY"]) if "LIQUIDITY" in os.environ else FixedPoint(140)*start_liq/FixedPoint(100)
 
 # %%
-interactive_config = LocalHyperdrive.Config(
-    position_duration=YEAR_IN_SECONDS,  # 1 year term
-    governance_lp_fee=FixedPoint(0),
-    curve_fee=FixedPoint(0),
-    flat_fee=FixedPoint(0),
-    initial_liquidity=FixedPoint(10),
-    initial_fixed_apr=FixedPoint(TIME_STRETCH_APR),
-    initial_time_stretch_apr=FixedPoint(TIME_STRETCH_APR),
-    factory_min_fixed_apr=FixedPoint(0.001),
-    factory_max_fixed_apr=FixedPoint(1000),
-    factory_min_time_stretch_apr=FixedPoint(0.001),
-    factory_max_time_stretch_apr=FixedPoint(1000),
-    minimum_share_reserves=FixedPoint(0.0001),
-    factory_max_circuit_breaker_delta=FixedPoint(1000),
-    circuit_breaker_delta=FixedPoint(10),
-    initial_variable_rate=FixedPoint(INITIAL_RATE),
-)
-hyperdrive:LocalHyperdrive = LocalHyperdrive(chain, interactive_config)
+results = []
+for TIME_STRETCH_APR in TIME_STRETCH_LIST:
+    DELTA_LIST = [0.01]
+    for DELTA in DELTA_LIST:
+        chain = LocalChain(LocalChain.Config(chain_port=10_000, db_port=10_001))
+        interactive_config = LocalHyperdrive.Config(
+            position_duration=YEAR_IN_SECONDS,  # 1 year term
+            governance_lp_fee=FixedPoint(0),
+            curve_fee=FixedPoint(0),
+            flat_fee=FixedPoint(0),
+            initial_liquidity=start_liq,
+            initial_fixed_apr=FixedPoint(TIME_STRETCH_APR),
+            initial_time_stretch_apr=FixedPoint(TIME_STRETCH_APR),
+            factory_min_fixed_apr=FixedPoint(0.001),
+            factory_max_fixed_apr=FixedPoint(1000),
+            factory_min_time_stretch_apr=FixedPoint(0.001),
+            factory_max_time_stretch_apr=FixedPoint(1000),
+            minimum_share_reserves=FixedPoint(0.0001),
+            factory_max_circuit_breaker_delta=FixedPoint(1000),
+            circuit_breaker_delta=FixedPoint(10),
+            initial_variable_rate=FixedPoint(TIME_STRETCH_APR),
+        )
+        hyperdrive:LocalHyperdrive = LocalHyperdrive(chain, interactive_config)
+
+        # %%
+        # set up agents
+        agent0 = chain.init_agent(base=FixedPoint(1e18), eth=FixedPoint(1e18), private_key=chain.get_deployer_account_private_key(), pool=hyperdrive)
+        agent1 = chain.init_agent(base=FixedPoint(1e18), eth=FixedPoint(1e18), pool=hyperdrive)
+        interface = hyperdrive.interface
+        all_results = pd.DataFrame()
+        records = []
+
+        # %%
+        # pseudo calc_targeted_short
+        chain.save_snapshot()
+        price, rate, base_traded, bonds_traded_short, trade_size = trade(interface, agent1, -1, interface.calc_max_long(budget=FixedPoint(1e18)), interface.calc_max_short(budget=FixedPoint(1e18)))
+        print(f"max short rate = {float(rate):,.5%}")
+        if len(DELTA_LIST)==1:
+            DELTA_LIST += np.linspace(start=DELTA_LIST[0], stop=np.floor((float(rate)-TIME_STRETCH_APR)*100)/100, num=8)[1:].tolist()  # pylint: disable=modified-iterating-list
+        trade_size = interface.calc_targeted_long(budget=FixedPoint(1e18), target_rate=FixedPoint(TIME_STRETCH_APR + DELTA))
+        price, rate, base_traded, bonds_traded_long = trade_long(interface, agent1, trade_size)
+        chain.load_snapshot()
+
+        # %%
+        # short to TIME_STRETCH_APR + DELTA
+        trade_size = - ((bonds_traded_short or 0) + (bonds_traded_long or 0))  # type: ignore
+        price, rate, base_traded, bonds_traded = trade_short(interface, agent1, trade_size)
+        records.append((1, "short", interface.calc_effective_share_reserves(), liquidity, None, None, TRADE_PORTION, price, rate, TIME_STRETCH_APR, interface.current_pool_state.pool_info.bond_reserves, interface.current_pool_state.pool_info.share_reserves))
+        print(f"after short, the rate is {float(rate):.3%}, bonds traded is {float(bonds_traded):.4f}")
+
+        # %%
+        # add liquidity
+        price, rate = trade_liq(interface, agent1, liquidity)
+        print(f"added {liquidity} base of liquidity")
+        records.append((2, "addliq", interface.calc_effective_share_reserves(), liquidity, None, None, TRADE_PORTION, price, rate, TIME_STRETCH_APR, interface.current_pool_state.pool_info.bond_reserves, interface.current_pool_state.pool_info.share_reserves))
+
+        # %%
+        # long to TIME_STRETCH_APR
+        trade_size = interface.calc_targeted_long(budget=FixedPoint(1e18), target_rate=FixedPoint(TIME_STRETCH_APR))
+        price, rate, base_traded, bonds_traded = trade_long(interface, agent1, trade_size)
+        print(f"after long, the rate is {float(rate):.3%}, bonds traded is {float(bonds_traded):.4f}")
+
+        # %%
+        # advance time
+        print(f"block = {chain.block_number()} timestamp = {pd.Timestamp(chain.block_time()*1e9).strftime('%Y-%m-%d %H:%M:%S')} vault_share_price = {interface.current_pool_state.pool_info.vault_share_price}")
+        print("advancing time by 1 year..", end="")
+        chain.advance_time(datetime.timedelta(seconds=60*60*24*365), create_checkpoints=False)
+        print(". ")
+        print(f"block = {chain.block_number()} timestamp = {pd.Timestamp(chain.block_time()*1e9).strftime('%Y-%m-%d %H:%M:%S')} vault_share_price = {interface.current_pool_state.pool_info.vault_share_price}")
+
+        # %%
+        # display pnl
+        pos0, pos1, pnl0, pnl1, spend0, spend1, roi0, roi1 = display_pnl(agent0, agent1)
+
+        # %%
+        # close positions
+        agent1.close_long(maturity_time=int(pos1.loc[pos1.token_type=="LONG","maturity_time"].values[0]), bonds=FixedPoint(pos1.loc[pos1.token_type=="LONG","token_balance"].values[0]))
+        agent1.close_short(maturity_time=int(pos1.loc[pos1.token_type=="SHORT","maturity_time"].values[0]), bonds=FixedPoint(pos1.loc[pos1.token_type=="SHORT","token_balance"].values[0]))
+        pos0, pos1, pnl0, pnl1, spend0, spend1, roi0, roi1 = display_pnl(agent0, agent1)
+
+        # %%
+        # remove liquidity
+        # agent1.remove_liquidity(shares=FixedPoint(pos1.loc[pos1.token_type=="LP","token_balance"].values[0]))
+        # pos0, pos1, pnl0, pnl1, spend0, spend1, roi0, roi1 = display_pnl(agent0, agent1)
+
+        # %%
+        # record experiment result
+        results.append([TIME_STRETCH_APR, DELTA, pnl0, pnl1, roi0, roi1])
+
+        # %%
+        chain.cleanup()
 
 # %%
-# set up agents
-deployer_privkey = chain.get_deployer_account_private_key()
-agent0 = chain.init_agent(base=FixedPoint(1e18), eth=FixedPoint(1e18), private_key=deployer_privkey, pool=hyperdrive)
-agent1 = chain.init_agent(base=FixedPoint(1e18), eth=FixedPoint(1e18), pool=hyperdrive)
-interface = hyperdrive.interface
-all_results = pd.DataFrame()
-records = []
+results_df = pd.DataFrame(results, columns=["TIME_STRETCH_APR", "DELTA", "pnl0", "pnl1", "roi0", "roi1"])
+results_df.to_csv("sandwich.csv")
 
 # %%
-# first long to INITIAL_RATE
-trade_size = interface.calc_targeted_long(budget=FixedPoint(1e18), target_rate=FixedPoint(INITIAL_RATE))
-price, rate, base_traded, bonds_traded = trade_long(interface, agent0, trade_size)
-records.append((1, "long", interface.calc_effective_share_reserves(), liquidity, None, None, TRADE_PORTION, price, rate, TIME_STRETCH_APR, interface.current_pool_state.pool_info.bond_reserves, interface.current_pool_state.pool_info.share_reserves))
-print(f"after first long, the rate is {rate}, bonds traded is {bonds_traded}")
+# ignore index col
+results_df = pd.read_csv("sandwich.csv", index_col=0)
+results_df["loss0"] = results_df["TIME_STRETCH_APR"] - results_df["roi0"]
+results_df["loss0pct"] = results_df["loss0"] / results_df["TIME_STRETCH_APR"]
+display(results_df.style
+    .format(subset=["pnl0", "pnl1"], formatter="{:,.3f}")
+    .format(subset=["TIME_STRETCH_APR", "DELTA"], formatter="{:,.2%}")
+    .format(subset=["roi0", "roi1"], formatter="{:,.5%}")
+    )
 
 # %%
-# max short
-# max_short_two = interface.calc_max_short(budget=FixedPoint(1e18))
-# max_long_two = interface.calc_max_long(budget=FixedPoint(1e18))
-# price, rate, base_traded, bonds_traded, trade_size = trade(interface, agent1, -1, max_long_two, max_short_two)
-# records.append((2, "short", interface.calc_effective_share_reserves(), trade_size, base_traded, bonds_traded, TRADE_PORTION, price, rate, TIME_STRETCH_APR, interface.current_pool_state.pool_info.bond_reserves, interface.current_pool_state.pool_info.share_reserves))
-# print(f"after max short, the rate is {rate}, bonds traded is {bonds_traded}")
-
-# # %%
-# # second long to UPPER_RATE
-# trade_size = interface.calc_targeted_long(budget=FixedPoint(1e18), target_rate=FixedPoint(UPPER_RATE))
-# price, rate, base_traded, bonds_traded = trade_long(interface, agent1, trade_size)
-# records.append((3, "long", interface.calc_effective_share_reserves(), liquidity, None, None, TRADE_PORTION, price, rate, TIME_STRETCH_APR, interface.current_pool_state.pool_info.bond_reserves, interface.current_pool_state.pool_info.share_reserves))
-# print(f"after second long, the rate is {rate}, bonds traded is {bonds_traded}")
-
-# %%
-# short to UPPER_RATE
-trade_size = 4.916643575785862144 - 1.630735704071033979
-price, rate, base_traded, bonds_traded = trade_short(interface, agent1, trade_size)
-records.append((3, "short", interface.calc_effective_share_reserves(), liquidity, None, None, TRADE_PORTION, price, rate, TIME_STRETCH_APR, interface.current_pool_state.pool_info.bond_reserves, interface.current_pool_state.pool_info.share_reserves))
-print(f"after short, the rate is {rate}, bonds traded is {bonds_traded}")
-
-# %%
-# add liquidity
-price, rate = trade_liq(interface, agent1, liquidity)
-records.append((4, "addliq", interface.calc_effective_share_reserves(), liquidity, None, None, TRADE_PORTION, price, rate, TIME_STRETCH_APR, interface.current_pool_state.pool_info.bond_reserves, interface.current_pool_state.pool_info.share_reserves))
-
-# %%
-# third long to INITIAL_RATE
-trade_size = interface.calc_targeted_long(budget=FixedPoint(1e18), target_rate=FixedPoint(INITIAL_RATE))
-price, rate, base_traded, bonds_traded = trade_long(interface, agent1, trade_size)
-print(f"after third long, the rate is {rate}, bonds traded is {bonds_traded}")
-
-# %%
-# check agent PNLs
-# agent0_wallet = agent0.get_wallet()
-# agent1_wallet = agent1.get_wallet()
-# print(f"agent0 PNL: {agent0_wallet}")
-# print(f"agent1 PNL: {agent1_wallet}")
-pos0 = agent0.get_positions()
-pos1 = agent1.get_positions()
-cols = ["token_type", "token_balance", "unrealized_value", "realized_value", "pnl"]
-print("agent0 positions")
-display(pos0[cols])
-print("agent1 positions")
-display(pos1[cols])
-pnl0 = pos0.pnl.sum()
-pnl1 = pos1.pnl.sum()
-print(f"agent0 PNL: {pnl0}")
-print(f"agent1 PNL: {pnl1}")
+fig, axs = plt.subplots(1,2, figsize=(9, 6))
+# eliminate buffer between subplots
+fig.subplots_adjust(wspace=0.2)
+palette = sns.color_palette("colorblind")
+sns.lineplot(x="DELTA", y="loss0", hue="TIME_STRETCH_APR", data=results_df, palette=palette, marker="o", ax=axs[0])
+# axs[0].set_ylabel("lost return")
+axs[0].set_ylabel("lost return (absolute % points)", weight="normal")
+sns.lineplot(x="DELTA", y="loss0pct", hue="TIME_STRETCH_APR", data=results_df, palette=palette, marker="o", ax=axs[1])
+axs[1].set_ylabel("lost return (relative as % of fixed rate)", weight="normal")
 
 # %%
