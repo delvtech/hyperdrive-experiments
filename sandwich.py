@@ -61,7 +61,8 @@ def display_pnl(agent0,agent1,verbose=False):
     print(f"agent1 PNL: {pnl1} on spend of {spend1} for an ROI of {roi1:.6%}")
 
     pnl_table = pd.DataFrame({"pnl": [pnl0, pnl1], "spend": [spend0, spend1], "roi": [roi0, roi1]}, index=["lp", "attacker"])
-    display(pnl_table.style.format(subset=["pnl", "spend"], formatter="{:,.3f}").format(subset=["roi"], formatter="{:,.5%}"))
+    if RUNNING_INTERACTIVE:
+        display(pnl_table.style.format(subset=["pnl", "spend"], formatter="{:,.3f}").format(subset=["roi"], formatter="{:,.5%}"))
     return pos0, pos1, pnl0, pnl1, spend0, spend1, roi0, roi1
 
 # %%
@@ -104,11 +105,11 @@ def trade_liq(interface:HyperdriveReadWriteInterface, agent:LocalHyperdriveAgent
 
 # sourcery skip: merge-list-append, move-assign-in-block
 YEAR_IN_SECONDS = 31_536_000
-TIME_STRETCH_LIST = [0.01, 0.05, 0.1, 0.2]
-# TIME_STRETCH_LIST = [0.01, 0.05]
-# TIME_STRETCH_APR = 0.01
+# TIME_STRETCH_LIST = [0.01, 0.05, 0.1, 0.2, 0.5, 1]
+TIME_STRETCH_LIST = [0.01]
 # DELTA_LIST = [0.01, 0.03, 0.05, 0.07, 0.09, 0.11, 0.13, 0.15]
 # DELTA = 0.17
+SHORT_TARGET_LIST = [0.05, 0.1, 0.15]
 TRADE_PORTION = -1  # 100% short
 STEPS = 12
 
@@ -121,8 +122,10 @@ liquidity = FixedPoint(os.environ["LIQUIDITY"]) if "LIQUIDITY" in os.environ els
 # %%
 results = []
 for TIME_STRETCH_APR in TIME_STRETCH_LIST:
-    DELTA_LIST = [0.01]
-    for DELTA in DELTA_LIST:
+    print(f"{TIME_STRETCH_APR=}")
+    # DELTA_LIST = [0.01]
+    # for DELTA in DELTA_LIST:
+    for SHORT_TARGET in SHORT_TARGET_LIST:
         chain = LocalChain(LocalChain.Config(chain_port=10_000, db_port=10_001))
         interactive_config = LocalHyperdrive.Config(
             position_duration=YEAR_IN_SECONDS,  # 1 year term
@@ -138,7 +141,7 @@ for TIME_STRETCH_APR in TIME_STRETCH_LIST:
             factory_max_time_stretch_apr=FixedPoint(1000),
             minimum_share_reserves=FixedPoint(0.0001),
             factory_max_circuit_breaker_delta=FixedPoint(1000),
-            circuit_breaker_delta=FixedPoint(10),
+            circuit_breaker_delta=FixedPoint(1e3),
             initial_variable_rate=FixedPoint(TIME_STRETCH_APR),
         )
         hyperdrive:LocalHyperdrive = LocalHyperdrive(chain, interactive_config)
@@ -148,6 +151,7 @@ for TIME_STRETCH_APR in TIME_STRETCH_LIST:
         agent0 = chain.init_agent(base=FixedPoint(1e18), eth=FixedPoint(1e18), private_key=chain.get_deployer_account_private_key(), pool=hyperdrive)
         agent1 = chain.init_agent(base=FixedPoint(1e18), eth=FixedPoint(1e18), pool=hyperdrive)
         interface = hyperdrive.interface
+        minimum_transaction_amount = interface.pool_config.minimum_transaction_amount
         all_results = pd.DataFrame()
         records = []
 
@@ -156,10 +160,16 @@ for TIME_STRETCH_APR in TIME_STRETCH_LIST:
         chain.save_snapshot()
         price, rate, base_traded, bonds_traded_short, trade_size = trade(interface, agent1, -1, interface.calc_max_long(budget=FixedPoint(1e18)), interface.calc_max_short(budget=FixedPoint(1e18)))
         print(f"max short rate = {float(rate):,.5%}")
-        if len(DELTA_LIST)==1:
-            DELTA_LIST += np.linspace(start=DELTA_LIST[0], stop=np.floor((float(rate)-TIME_STRETCH_APR)*100)/100, num=8)[1:].tolist()  # pylint: disable=modified-iterating-list
-        trade_size = interface.calc_targeted_long(budget=FixedPoint(1e18), target_rate=FixedPoint(TIME_STRETCH_APR + DELTA))
-        price, rate, base_traded, bonds_traded_long = trade_long(interface, agent1, trade_size)
+        max_delta = np.floor((float(rate)-TIME_STRETCH_APR)*100)/100
+        # if len(DELTA_LIST)==1:
+        #     DELTA_LIST += np.linspace(start=DELTA_LIST[0], stop=max_delta, num=8)[1:].tolist()  # pylint: disable=modified-iterating-list
+        # DELTA = min(TIME_STRETCH_APR, max_delta)
+        # DELTA = max_delta
+        # SHORT_TARGET = FixedPoint(TIME_STRETCH_APR + DELTA)
+        trade_size = interface.calc_targeted_long(budget=FixedPoint(1e18), target_rate=FixedPoint(SHORT_TARGET))
+        bonds_traded_long = 0
+        if trade_size > minimum_transaction_amount:
+            price, rate, base_traded, bonds_traded_long = trade_long(interface, agent1, trade_size)
         chain.load_snapshot()
 
         # %%
@@ -190,7 +200,7 @@ for TIME_STRETCH_APR in TIME_STRETCH_LIST:
         print(f"block = {chain.block_number()} timestamp = {pd.Timestamp(chain.block_time()*1e9).strftime('%Y-%m-%d %H:%M:%S')} vault_share_price = {interface.current_pool_state.pool_info.vault_share_price}")
 
         # %%
-        # display pnl
+        # display pnl before closing positions
         pos0, pos1, pnl0, pnl1, spend0, spend1, roi0, roi1 = display_pnl(agent0, agent1)
 
         # %%
@@ -206,13 +216,14 @@ for TIME_STRETCH_APR in TIME_STRETCH_LIST:
 
         # %%
         # record experiment result
-        results.append([TIME_STRETCH_APR, DELTA, pnl0, pnl1, roi0, roi1])
+        print(f"adding result {TIME_STRETCH_APR} {SHORT_TARGET} {pnl0} {pnl1} {roi0} {roi1}")
+        results.append([TIME_STRETCH_APR, SHORT_TARGET, pnl0, pnl1, roi0, roi1])
 
         # %%
         chain.cleanup()
 
 # %%
-results_df = pd.DataFrame(results, columns=["TIME_STRETCH_APR", "DELTA", "pnl0", "pnl1", "roi0", "roi1"])
+results_df = pd.DataFrame(results, columns=["TIME_STRETCH_APR", "SHORT_TARGET", "pnl0", "pnl1", "roi0", "roi1"])
 results_df.to_csv("sandwich.csv")
 
 # %%
@@ -222,19 +233,20 @@ results_df["loss0"] = results_df["TIME_STRETCH_APR"] - results_df["roi0"]
 results_df["loss0pct"] = results_df["loss0"] / results_df["TIME_STRETCH_APR"]
 display(results_df.style
     .format(subset=["pnl0", "pnl1"], formatter="{:,.3f}")
-    .format(subset=["TIME_STRETCH_APR", "DELTA"], formatter="{:,.2%}")
+    .format(subset=["TIME_STRETCH_APR", "SHORT_TARGET"], formatter="{:,.2%}")
     .format(subset=["roi0", "roi1"], formatter="{:,.5%}")
     )
 
 # %%
-fig, axs = plt.subplots(1,2, figsize=(9, 6))
-# eliminate buffer between subplots
-fig.subplots_adjust(wspace=0.2)
-palette = sns.color_palette("colorblind")
-sns.lineplot(x="DELTA", y="loss0", hue="TIME_STRETCH_APR", data=results_df, palette=palette, marker="o", ax=axs[0])
-# axs[0].set_ylabel("lost return")
-axs[0].set_ylabel("lost return (absolute % points)", weight="normal")
-sns.lineplot(x="DELTA", y="loss0pct", hue="TIME_STRETCH_APR", data=results_df, palette=palette, marker="o", ax=axs[1])
-axs[1].set_ylabel("lost return (relative as % of fixed rate)", weight="normal")
+if RUNNING_INTERACTIVE:
+    fig, axs = plt.subplots(1,2, figsize=(9, 6))
+    # eliminate buffer between subplots
+    fig.subplots_adjust(wspace=0.2)
+    palette = sns.color_palette("colorblind")
+    sns.lineplot(x="SHORT_TARGET", y="loss0", hue="TIME_STRETCH_APR", data=results_df, palette=palette, marker="o", ax=axs[0])
+    # axs[0].set_ylabel("lost return")
+    axs[0].set_ylabel("lost return (absolute % points)", weight="normal")
+    sns.lineplot(x="SHORT_TARGET", y="loss0pct", hue="TIME_STRETCH_APR", data=results_df, palette=palette, marker="o", ax=axs[1])
+    axs[1].set_ylabel("lost return (relative as % of fixed rate)", weight="normal")
 
 # %%
