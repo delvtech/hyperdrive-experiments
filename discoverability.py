@@ -102,11 +102,10 @@ for trial,TIME_STRETCH_APR in enumerate(TIME_STRETCH_LIST):
         factory_max_fixed_apr=FixedPoint(1000),
         factory_min_time_stretch_apr=FixedPoint(0.001),
         factory_max_time_stretch_apr=FixedPoint(1000),
-        calc_pnl=False,
         minimum_share_reserves=minimum_share_reserves,
     )
     hyperdrive:LocalHyperdrive = LocalHyperdrive(chain, interactive_config)
-    agent:LocalHyperdriveAgent = hyperdrive.init_agent(base=FixedPoint(1e18), eth=FixedPoint(1e18))
+    agent:LocalHyperdriveAgent = chain.init_agent(base=FixedPoint(1e18), eth=FixedPoint(1e18), pool=hyperdrive)
     interface = hyperdrive.interface
     time_stretch = interface.current_pool_state.pool_config.time_stretch
     print("Time stretch: %s", time_stretch)
@@ -171,7 +170,7 @@ for idx,time_stretch in enumerate(unique_time_stretches):
 fig, axs = plt.subplots(1,1, figsize=(9, 6), sharex=True)
 plt.title(f"Fixed Rate vs. {X_TITLE.capitalize()}", ha="center", fontsize=14, weight="normal")
 plot_data = all_results.loc[all_results.type == "second",:]
-elbow_data = plot_data.loc[plot_data.portion==-0.8,:]
+elbow_data = plot_data.loc[plot_data.portion==-0.9,:]
 sns.lineplot(x=X_VAL, y="rate", data=plot_data, hue="time_stretch_apr", palette=palette, marker="o", ax=axs)
 sns.lineplot(x=X_VAL, y="rate", label="elbow method", data=elbow_data, palette=palette, marker="o", ax=axs)
 plot_handles = axs.get_legend_handles_labels()[0]
