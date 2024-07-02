@@ -1,4 +1,4 @@
-agent0 @ git+https://github.com/delvtech/agent0.git@75bf77346bd09045ad313a0ada1b9671d509cb00
+agent0 @ git+https://github.com/delvtech/agent0.git@312ec6c822ac4c363e0f721218ed9d0ed39923e5
 aiohttp==3.9.5
 aiosignal==1.3.1
 altair==5.3.0
@@ -64,7 +64,7 @@ mplfinance==0.12.10b0
 multidict==6.0.5
 nest-asyncio==1.6.0
 numpy==1.26.4
-packaging==24.0
+packaging==24.1
 pandas==2.2.2
 pandas-stubs==2.2.2.240603
 parsimonious==0.10.0
@@ -74,7 +74,7 @@ pexpect==4.9.0
 pillow==10.3.0
 platformdirs==4.2.2
 pluggy==1.5.0
-prompt-toolkit==3.0.46
+prompt-toolkit==3.0.47
 protobuf==4.25.3
 psutil==5.9.8
 psycopg==3.1.19
@@ -104,7 +104,7 @@ rollbar==1.0.0
 rpds-py==0.18.1
 scipy==1.13.1
 seaborn==0.13.2
-sentry-sdk==2.5.0
+sentry-sdk==2.5.1
 setproctitle==1.3.3
 setuptools==70.0.0
 six==1.16.0
@@ -121,10 +121,10 @@ toolz==0.12.1
 tornado==6.4.1
 traitlets==5.14.3
 types-pytz==2024.1.0.20240417
-typing-extensions==4.12.1
+typing-extensions==4.12.2
 tzdata==2024.1
 urllib3==2.2.1
-wandb==0.17.0
+wandb==0.17.1
 watchdog==4.0.1
 wcwidth==0.2.13
 web3==6.11.0
