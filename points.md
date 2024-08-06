@@ -9,6 +9,7 @@ We currently attribute that yield to LPs and shorts, based on the short exposure
 How do we do this? Coding magic.
 
 ## Options
+Thesis: points and rewards should go to variable yield positions, since asset delegation is tthe source of both variable yield and points. Points are just another form of variable yield.
 
 ### Shorts Only
 
@@ -17,84 +18,51 @@ However, it may not be the most 'fair' approach because there could be a large a
 
 ### Shorts and LP
 
-This is the more fair approach and possibly also the best incentive approach since attracting LPs to the protocol with rewards/points incentives will likely result in a larger amount of activity. However, it is more complex to implement and maintain. The main idea here is that we would pro-rate points/rewards to LPs based on the positions that they are backing.
+This is the more fair approach and possibly also the best approach since attracting LPs to the protocol with rewards/points incentives will likely result in a larger amount of activity. However, it is more complex to implement and maintain.  In this approach, LPs and shorts are given points/rewards, and longs are not.
 
-This is in line with how Pendle does it: an LP holds the YT token (equivalent to short position) that they're LPing, so they earn points on that. The amount of points a Hyperdrive LP earns would be dynamic, based on the usage of LP capital versus idle capital.
+In Hyperdrive, LP funds back any trade by opening an opposite position. When the market is not perfectly balanced, the LPs will either have long exposure or short exposure.  The LP's short exposure plus the idle capital reflects how much variable yield LPs are earning, and as a result how many points they should be allocated (lp_short_positions + lp_idle_capital).
 
-The Hyperdrive protocol is an innovate new fixed rates market that enables 'mint on demand' positions for fixed rates. This is enabled by using LP funds to back the trade by opening an opposite position. Hyperdrive does allow for positions to be netted so there is a chance that LP's wont have exposure to the variable yield source. More likely though, the market wont be perfectly balanced and the LPs will either have long exposure or short exposure. The portion of short exposure plus the idle capital of the LPs should be given a pro-rata share of the yield source rewards/points.
+Shorts are much simplier, the total amount of active short positions is the total capital allocation for shorts that should be earning points and rewards emissions (short_allocation = shorts_outstanding).
 
-Because Hyperdrive uses a checkpointing system for updating the accounting of the market, it makes sense to also bucket the points/rewards emissions by the checkpoints. So, let's start with a very basic example:
+To figure out the amount of points each user gets, we can break down the problem into two parts:
+1. Find the total capital for LPs and the total capital for user short positions that should be earning points and rewards emissions.  
+2. For each group, LPs and shorts, determine each user's share of the group at each timestep to get their time-weighted shares of the rewards/points emissions.
 
-Let's say we start with a market of 1 LP of 100 base tokens.
+#### Finding the total capital allocation for LPs and shorts
+There are a couple ways we can do this.  Since we know that the total amount of shorts outstanding is the total capital allocation for shorts, we could just say that total LP allocation is the TVL of the pool minus the shorts outstanding:
 
-```
-The total LP supply is 100.
-The exposure is 0.
-The idle capital is 100.
-The LP is given all of the yield source rewards/points.
-pool_share_reserves = 100
-idle_capital_calc = 100 - 0 = 100
-```
+The entire amount of money in the pool is earning points and we know the short allocation is just the total amount of shorts outstanding.  So we could find the LP allocation by simple subraction:
 
-If a user opens a short position, the LP would open a long position to back the trade.
+short_allocation = shorts_outstanding
+FORMULA ONE: lp_allocation = total_pool_tvl - short_allocation 
 
-```
-A user shorts 10 base tokens for 1 base token.
-The LP longs 10 base tokens.
-The long exposure is 10.
-The LP's idle capital is 90.
-pool_share_reserves = 100 - 10 = 90
-idle_capital_calc = 90 - 0 = 90
-```
+Alternatively, we could try to calculate the total capital allocation for the LPs directly.  There are two parts to this: the part that is backing longs (therefore taking short positions) and the idle capital simply earning the variable yield:
 
-So,
+lp_short_positions = long_exposure
+lp_idle_capital = share_reserves - long_exposure
 
-```
-The LP would earn points on 9/10 of their LP position.
-The LP would earn a fixed yield on 10 base tokens.
-The LP would earn fees from short trade.
-The short position would earn points 10 base tokens, a 10x multiplier.
-```
+Adding these two together,
+lp_short_positions + lp_idle_capital = long_exposure + share_reserves - long_exposure
 
-Now what happens if the short position is netted out by another user that opens a long position?
+therefore:
 
-```
-A user longs for 10 base tokens.
-Now the market is netted.
-The long position earns fixed yield on 10 base tokens.
-The LP would earn points on their entire position.
-The short position is still earning 10x multiplier on points.
-pool_share_reserves = 100 (because short and long net out)
-idle_capital_calc = 100 - 0 = 100
-```
+lp_short_positions + lp_idle_capital = share_reserves
 
-Now what happens if another long is opened?
+Now we can check the result and hopefully assert that
 
-```
-Another user longs for 10 base tokens.
-The LP shorts 10 base tokens for 1 base token to back the trade.
+FORMULA TWO: lp_allocation = share_reserves 
+FORMULA THREE: lp_short_positions + lp_idle_capital
 
-The short exposure is 10.
-The LP's idle capital is 99.
+#### Finding the time-weighted shares of the rewards/points emissions
 
-pool_share_reserves = 110
-idle_capital_calc = 110 - 1 = 109
-```
-
-So,
-
-```
-Both long positions earn fixed yield on 10 base tokens.
-
-The LP would earn 10x multiplier on the short exposure.
-The LP would earn 1x points on the idle capital.
-Total multiplier for the LP is 109 / 100 = 1.09.
-
-The short position is still earning  10x multiplier on points.
-```
 
 # Distribution
 
+
+
+
+
+### Dscussion
 Pro-ration of points can be done similarly for LPs and shorts.
 
 for attributing fees, we do:
@@ -162,3 +130,72 @@ So at every timestep the LPs earn points on idle_captial + long_exposure, which 
 Each individual LP earns their pro-rata share based on their percent share of total lp tokens at each timestep.
 
 Similarly, shorts are paid by the size of their short position(s) and the total amount of shorts outstanding at any given timestep.
+
+### Examples
+Let's say we start with a market of 1 LP of 100 base tokens.
+
+```
+The total LP supply is 100.
+The exposure is 0.
+The idle capital is 100.
+The LP is given all of the yield source rewards/points.
+pool_share_reserves = 100
+idle_capital_calc = 100 - 0 = 100
+```
+
+If a user opens a short position, the LP would open a long position to back the trade.
+
+```
+A user shorts 10 base tokens for 1 base token.
+The LP longs 10 base tokens.
+The long exposure is 10.
+The LP's idle capital is 90.
+pool_share_reserves = 100 - 10 = 90
+idle_capital_calc = 90 - 0 = 90
+```
+
+So,
+
+```
+The LP would earn points on 9/10 of their LP position.
+The LP would earn a fixed yield on 10 base tokens.
+The LP would earn fees from short trade.
+The short position would earn points 10 base tokens, a 10x multiplier.
+```
+
+Now what happens if the short position is netted out by another user that opens a long position?
+
+```
+A user longs for 10 base tokens.
+Now the market is netted.
+The long position earns fixed yield on 10 base tokens.
+The LP would earn points on their entire position.
+The short position is still earning 10x multiplier on points.
+pool_share_reserves = 100 (because short and long net out)
+idle_capital_calc = 100 - 0 = 100
+```
+
+Now what happens if another long is opened?
+
+```
+Another user longs for 10 base tokens.
+The LP shorts 10 base tokens for 1 base token to back the trade.
+
+The short exposure is 10.
+The LP's idle capital is 99.
+
+pool_share_reserves = 110
+idle_capital_calc = 110 - 1 = 109
+```
+
+So,
+
+```
+Both long positions earn fixed yield on 10 base tokens.
+
+The LP would earn 10x multiplier on the short exposure.
+The LP would earn 1x points on the idle capital.
+Total multiplier for the LP is 109 / 100 = 1.09.
+
+The short position is still earning  10x multiplier on points.
+```
