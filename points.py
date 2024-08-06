@@ -119,10 +119,15 @@ idle_base = idle_shares * share_price
 print(f"{idle_base=}")
 assert base_reserves - pool_config.minimum_share_reserves*share_price == long_exposure + idle_base, f"base_reserves - pool_config.minimum_share_reserves*share_price != long_exposure + idle_base: {base_reserves - pool_config.minimum_share_reserves*share_price} != {long_exposure + idle_base}"
 assert share_reserves - pool_config.minimum_share_reserves == long_exposure/share_price + idle_shares, f"share_reserves - pool_config.minimum_share_reserves != long_exposure/share_price + idle_shares: {share_reserves - pool_config.minimum_share_reserves} != {long_exposure/share_price + idle_shares}"
+base_earning_points_for_lps = long_exposure + idle_base
 short_portion_of_share_reserves = long_exposure/share_price/(long_exposure/share_price + idle_shares)
 idle_portion_of_share_reserves = idle_shares/(long_exposure/share_price + idle_shares)
 print(f" short portion of share reserves: {float(short_portion_of_share_reserves):>5.1%}")
 print(f"  idle portion of share reserves: {float(idle_portion_of_share_reserves):>5.1%}")
+lp_present_value = interface.calc_present_value()
+print(f"{lp_present_value=}")
+lp_points_multiplier = base_earning_points_for_lps / lp_present_value
+print(f"lp points multiplier = {lp_points_multiplier} (base_earning_points_for_lps/lp_present_value = {base_earning_points_for_lps}/{lp_present_value})")
 
 # %%
 # If a user opens a short position, the LP would open a long position to back the trade.
