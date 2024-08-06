@@ -38,6 +38,7 @@ else:  # being run from the terminal or something similar
 YEAR_IN_SECONDS = 31_536_000
 TIME_STRETCH_APR = 0.05
 LIQUIDITY = FixedPoint(100)
+ONE_WEI = FixedPoint("1e-18")
 
 chain = LocalChain(LocalChain.Config(chain_port=10_000, db_port=10_001))
 interactive_config = LocalHyperdrive.Config(
@@ -128,6 +129,31 @@ lp_present_value = interface.calc_present_value()
 print(f"{lp_present_value=}")
 lp_points_multiplier = base_earning_points_for_lps / lp_present_value
 print(f"lp points multiplier = {lp_points_multiplier} (base_earning_points_for_lps/lp_present_value = {base_earning_points_for_lps}/{lp_present_value})")
+
+# %%
+# we open a short
+event_list = agent1.open_short(bonds=FixedPoint(10))
+event = event_list[0] if isinstance(event_list, list) else event_list
+print(" open short:")
+for d in dir(event):
+    if not d.startswith('_'):
+        print(f"  {d}: {getattr(event, d)}")
+pool_state = interface.current_pool_state
+pool_config = pool_state.pool_config
+pool_info = pool_state.pool_info
+share_price = pool_info.vault_share_price
+share_reserves = pool_info.share_reserves
+print(f"{share_reserves=}")
+base_reserves = share_reserves * share_price
+print(f"{base_reserves=}")
+long_exposure = pool_info.long_exposure
+print(f"{long_exposure=}")
+idle_shares = interface.get_idle_shares(pool_state=pool_state)
+print(f"{idle_shares=}")
+idle_base = idle_shares * share_price
+print(f"{idle_base=}")
+assert base_reserves - pool_config.minimum_share_reserves*share_price == long_exposure + idle_base, f"base_reserves - pool_config.minimum_share_reserves*share_price != long_exposure + idle_base: {base_reserves - pool_config.minimum_share_reserves*share_price} != {long_exposure + idle_base}"
+assert share_reserves - pool_config.minimum_share_reserves == long_exposure/share_price + idle_shares, f"share_reserves - pool_config.minimum_share_reserves != long_exposure/share_price + idle_shares: {share_reserves - pool_config.minimum_share_reserves} != {long_exposure/share_price + idle_shares}"
 
 # %%
 # If a user opens a short position, the LP would open a long position to back the trade.
