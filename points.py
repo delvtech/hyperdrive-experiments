@@ -63,13 +63,18 @@ interface:HyperdriveReadInterface = hyperdrive.interface
 # %%
 # define functions
 def report_stats(interface:HyperdriveReadInterface):
-    # FORMULA TWO: lp_allocation = share_reserves 
-    # FORMULA THREE: lp_short_positions + lp_idle_capital
+    # FORMULA ONE: lp_allocation = share_reserves 
+    # FORMULA TWO: lp_allocation = long_exposure (lp_short_positions) + lp_idle_capital
     pool_state = interface.current_pool_state
-    idle_shares = interface.get_idle_shares(pool_state=pool_state)
-    print(f"{idle_shares=}")
-    idle_base = idle_shares * interface.calc_spot_price()
-    print(f"{idle_base=}")
+    pool_info = pool_state.pool_info
+    # 🏎️
+    formula_one = pool_info.share_reserves - pool_state.pool_config.minimum_share_reserve
+    # 🚗
+    long_exposure = pool_info.long_exposure
+    idle_capital = interface.get_idle_shares(pool_state=pool_state)
+    formula_two = long_exposure + idle_capital
+    # 🏁
+    assert formula_one == formula_two, f"share_reserves != long_exposure + idle_capital: {formula_one} != {formula_two}"
 
 # %%
 # Let's say we start with a market of 1 LP of 100 base tokens.
@@ -87,6 +92,38 @@ idle_shares = interface.get_idle_shares(pool_state=pool_state)
 print(f"beginning {idle_shares=}")
 idle_base = idle_shares * interface.calc_spot_price()
 
+#  %%
+# we open a long
+event_list = agent0.open_long(base=FixedPoint(10))
+event = event_list[0] if isinstance(event_list, list) else event_list
+print(" open long:")
+for d in dir(event):
+    if not d.startswith('_'):
+        print(f"  {d}: {getattr(event, d)}")
+pool_state = interface.current_pool_state
+pool_config = pool_state.pool_config
+pool_info = pool_state.pool_info
+share_price = pool_info.vault_share_price
+share_reserves = pool_info.share_reserves
+print(f"{share_reserves=}")
+base_reserves = share_reserves * share_price
+print(f"{base_reserves=}")
+long_exposure = pool_info.long_exposure
+# long exposure tracks the amount of longs open
+# you can think of this as being in units of bonds
+# it also equals the number of base that Hyperdrive sets aside to back these bonds
+print(f"{long_exposure=}")
+idle_shares = interface.get_idle_shares(pool_state=pool_state)
+print(f"{idle_shares=}")
+idle_base = idle_shares * share_price
+print(f"{idle_base=}")
+assert base_reserves - pool_config.minimum_share_reserves*share_price == long_exposure + idle_base, f"base_reserves - pool_config.minimum_share_reserves*share_price != long_exposure + idle_base: {base_reserves - pool_config.minimum_share_reserves*share_price} != {long_exposure + idle_base}"
+assert share_reserves - pool_config.minimum_share_reserves == long_exposure/share_price + idle_shares, f"share_reserves - pool_config.minimum_share_reserves != long_exposure/share_price + idle_shares: {share_reserves - pool_config.minimum_share_reserves} != {long_exposure/share_price + idle_shares}"
+short_portion_of_share_reserves = long_exposure/share_price/(long_exposure/share_price + idle_shares)
+idle_portion_of_share_reserves = idle_shares/(long_exposure/share_price + idle_shares)
+print(f" short portion of share reserves: {float(short_portion_of_share_reserves):>5.1%}")
+print(f"  idle portion of share reserves: {float(idle_portion_of_share_reserves):>5.1%}")
+
 # %%
 # If a user opens a short position, the LP would open a long position to back the trade.
 # ```
@@ -99,17 +136,16 @@ idle_base = idle_shares * interface.calc_spot_price()
 # ```
 
 # do the trade
-# spot_price = interface.calc_spot_price()
-share_price = interface.current_pool_state.pool_info.vault_share_price
-bonds_for_10_base = interface.calc_bonds_out_given_shares_in_down(amount_in=FixedPoint(10)/share_price)*(FixedPoint(1) + interface.pool_config.fees.curve)
-agent0.open_short(bonds=bonds_for_10_base)
+# share_price = interface.current_pool_state.pool_info.vault_share_price
+# bonds_for_10_base = interface.calc_bonds_out_given_shares_in_down(amount_in=FixedPoint(10)/share_price)*(FixedPoint(1) + interface.pool_config.fees.curve)
+# agent0.open_short(bonds=bonds_for_10_base)
 
 # after trade
-pool_state = interface.current_pool_state
-long_exposure = pool_state.pool_info.long_exposure
-print(f"long exposure: {long_exposure}")
-idle_capital = interface.get_idle_shares(pool_state=pool_state)
-print(f"idle capital: {idle_capital}")
+# pool_state = interface.current_pool_state
+# long_exposure = pool_state.pool_info.long_exposure
+# print(f"long exposure: {long_exposure}")
+# idle_capital = interface.get_idle_shares(pool_state=pool_state)
+# print(f"idle capital: {idle_capital}")
 
 # %%
 # Now what happens if the short position is netted out by another user that opens a long position?
@@ -124,13 +160,14 @@ print(f"idle capital: {idle_capital}")
 # idle_capital_calc = 100 - 0 = 100
 # ```
 
-agent1.open_long(base=FixedPoint(10))
+# do the trade
+# agent1.open_long(base=FixedPoint(10))
 
 # after trade
-pool_state = interface.current_pool_state
-long_exposure = pool_state.pool_info.long_exposure
-print(f"long exposure: {long_exposure}")
-idle_capital = interface.get_idle_shares(pool_state=pool_state)
-print(f"idle capital: {idle_capital}")
+# pool_state = interface.current_pool_state
+# long_exposure = pool_state.pool_info.long_exposure
+# print(f"long exposure: {long_exposure}")
+# idle_capital = interface.get_idle_shares(pool_state=pool_state)
+# print(f"idle capital: {idle_capital}")
 
 # %%
