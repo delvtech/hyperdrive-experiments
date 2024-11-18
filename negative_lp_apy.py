@@ -1,20 +1,14 @@
 # %%
-# This script showcases the burrito attack on hyperdrive.
-# Key parameters:
-#   fixed rate = variable rate = time stretch APR = 0.5 (50%)
-#   circuit breaker delta = 1e3
-#   position duration = 4 weeks (32 days)
-#   target agent (Alice) contribution = 100k
-#   bad agent (Celine) contribution = 1M
-#
+# This script showcases the negative LP APY situation in Hyperdrive
 # Steps:
-#   1. Alice LPs
-#   2. Celine opens a max short (for as much as budget allows)
-#   3. Celine LPs (for contribution amount)
-#   4. Celine opens a max long (for as much as budget allows)
-#   5. Time elapses (x-axis amount in plot)
-#   6. Celine closes all positions
-#   7. Alice closes all positions
+# 1. Alice adds liquidity
+# 2. Celine opens a long
+# 3. Alice removes all liquidity and gets withdrawal shares
+# 4. Time elapses at a lower variable APY
+# Result: Alice got back most of their base, and their withdrawal
+# shares are left losing value to pay for Celine's Long, resulting
+# in negative LP APY.
+# New LPs take on this loss as well.
 
 # %
 from decimal import Decimal
