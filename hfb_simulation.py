@@ -122,7 +122,7 @@ def calc_summary_stats(utilization, rates):
     print(f"Maximum Borrow Rate: {max_rate:.2%}")
     print(f"Minimum Borrow Rate: {min_rate:.2%}")
 
-def plot_utilization_and_rates(_irm: AdaptiveIRM, utilization, borrow_rates, supply_rates=None, effective_rates=None, rate_at_target_list=None):
+def plot_utilization_and_rates(_irm: AdaptiveIRM, utilization, borrow_rates, supply_rates=None, effective_rates=None, rate_at_target_list=None, file_suffix=''):
     # Plot both utilization and rates
     _, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
 
@@ -146,9 +146,9 @@ def plot_utilization_and_rates(_irm: AdaptiveIRM, utilization, borrow_rates, sup
     
     if supply_rates is not None:
         # Supply Rate
-        line = ax2.step(range(1, len(supply_rates)+1), supply_rates, color='blue', where='post')[0]
-        lines.append(line)
-        labels.append(f'Supply Rate (avg={np.mean(supply_rates):.2%})')
+        # line = ax2.step(range(1, len(supply_rates)+1), supply_rates, color='blue', where='post')[0]
+        # lines.append(line)
+        # labels.append(f'Supply Rate (avg={np.mean(supply_rates):.2%})')
         
         # Gap
         gap = np.array(borrow_rates) - np.array(supply_rates)
@@ -172,7 +172,8 @@ def plot_utilization_and_rates(_irm: AdaptiveIRM, utilization, borrow_rates, sup
     ax2.legend(lines, labels, loc='upper left')
 
     plt.tight_layout()
-    plt.show()
+    # plt.show()
+    plt.savefig('outputs/' + FILENAME + file_suffix + '.png')
 
 def plot_transformation_function(_irm: AdaptiveIRM, utilization):
     # Plot the rate transformation function
@@ -191,13 +192,14 @@ def plot_transformation_function(_irm: AdaptiveIRM, utilization):
     plt.show()
 
 # %%
-def calculate_irm_stats(_irm: AdaptiveIRM, utilization_list, utilization_gap_point = 0.35) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def calculate_irm_stats(_irm: AdaptiveIRM, utilization_list, utilization_gap_point = 0.35, hd_fixed_rate=None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     # Calculate rates at each utilization level
     start_time = time.time()
     # we know this scenario is not going to happen
     # but it is one indicative scenario of a possible bad scenario (not even the worst)
-    # hd_fixed_rate = _irm.calc_hd_rate_given_quoted_rate(QUOTED_RATE, utilization_gap_point)
-    hd_fixed_rate = 0.06
+    if hd_fixed_rate is None:
+        hd_fixed_rate = _irm.calc_hd_rate_given_quoted_rate(QUOTED_RATE, utilization_gap_point)
+        # hd_fixed_rate = 0.06
     borrow_rates = []
     supply_rates = []
     rate_at_target_list = []
@@ -223,28 +225,33 @@ def calculate_irm_stats(_irm: AdaptiveIRM, utilization_list, utilization_gap_poi
     # print(f"rates simulated in {time.time() - start_time:.2f} seconds")
     return borrow_rates, supply_rates, effective_rates, rate_at_target_list
 
+FILENAME = "wsteth-hd-rate-009-18"
 # %%
 # create one trial
-QUOTED_RATE = 0.08
-CURRENT_RATE_AT_TARGET = 0.0771
-HIGH_UTILIZATION_RATE = 0.925
-LOW_UTILIZATION_RATE = 0.5
+HD_FIXED_RATE = 0.09 # only used if USE_QUOTED_RATE is False
+QUOTED_RATE = 0.09
+CURRENT_RATE_AT_TARGET = 0.090
+USE_QUOTED_RATE = False # if True, back out the hd_fixed_rate from the quoted rate
+HIGH_UTILIZATION_RATE = 0.922
+LOW_UTILIZATION_RATE = 0.4
 MIDPOINT = 0.87
 # LOW_PROBABILITY = 0.5
-LOW_PROBABILITY = 0.02
-DEVIATION = 0.015
-DIP_PROBABILITY = 0.02
-SPIKE_PROBABILITY = 0.06
+LOW_PROBABILITY = 0.03
+# DEVIATION = 0.015
+# DIP_PROBABILITY = 0.02
+# SPIKE_PROBABILITY = 0.06
 NUM_DAYS = 180
 utilization = generate_uniform_distribution(size=NUM_DAYS, high=HIGH_UTILIZATION_RATE, low=LOW_UTILIZATION_RATE, midpoint=MIDPOINT, lower_probability=LOW_PROBABILITY)
 # utilization = generate_uniform_distribution_dips_spikes(size=NUM_DAYS, high=HIGH_UTILIZATION_RATE, low=LOW_UTILIZATION_RATE, midpoint=MIDPOINT, lower_probability=LOW_PROBABILITY, deviation=DEVIATION, dip_probability=DIP_PROBABILITY, spike_probability=SPIKE_PROBABILITY)
 UTILIZATION_POINT = 0.77 # lower is more conservative, creating more of a buffer
 # HD fixed rate
 irm = AdaptiveIRM(u_target=0.9, rate_at_target=CURRENT_RATE_AT_TARGET)
-# hd_fixed_rate = irm.calc_hd_rate_given_quoted_rate(quoted_rate=QUOTED_RATE, u=UTILIZATION_POINT)
-hd_fixed_rate = 0.06
+if USE_QUOTED_RATE:
+    hd_fixed_rate = irm.calc_hd_rate_given_quoted_rate(quoted_rate=QUOTED_RATE, u=UTILIZATION_POINT)
+else:
+    hd_fixed_rate = HD_FIXED_RATE
 print(f"{hd_fixed_rate=:.2%}")
-borrow_rates, supply_rates, effective_rates, rates_at_target = calculate_irm_stats(irm, utilization, UTILIZATION_POINT)
+borrow_rates, supply_rates, effective_rates, rates_at_target = calculate_irm_stats(irm, utilization, UTILIZATION_POINT, hd_fixed_rate)
 # plot_utilization_and_rates(irm, utilization, borrow_rates, supply_rates, effective_rates, rates_at_target)
 
 # %%
@@ -268,7 +275,7 @@ for _ in range(NUM_TRIALS):
     utilization = generate_uniform_distribution(size=NUM_DAYS, high=HIGH_UTILIZATION_RATE, low=LOW_UTILIZATION_RATE, midpoint=MIDPOINT, lower_probability=LOW_PROBABILITY)
     # utilization = generate_uniform_distribution_dips_spikes(size=NUM_DAYS, high=HIGH_UTILIZATION_RATE, low=LOW_UTILIZATION_RATE, midpoint=MIDPOINT, lower_probability=LOW_PROBABILITY, deviation=DEVIATION, dip_probability=DIP_PROBABILITY, spike_probability=SPIKE_PROBABILITY)
     irm = AdaptiveIRM(u_target=0.9, rate_at_target=CURRENT_RATE_AT_TARGET)
-    borrow_rates, supply_rates, effective_rates, rates_at_target = calculate_irm_stats(irm, utilization, UTILIZATION_POINT)
+    borrow_rates, supply_rates, effective_rates, rates_at_target = calculate_irm_stats(irm, utilization, UTILIZATION_POINT, hd_fixed_rate)
     hist_borrow.append(borrow_rates)
     hist_borrow_avg.append(np.mean(borrow_rates))
     hist_utilization.append(utilization)
@@ -277,14 +284,14 @@ hist_effective_avg = np.array(hist_effective_avg)
 
 print(f"average effective rate: {np.mean(hist_effective_avg):.3%}")
 print(f"average morpho borrow rate: {np.mean(hist_borrow_avg):.3%}")
-plt.figure(figsize=(10, 6))
-p = plt.hist(hist_effective_avg, bins=30, label=f"Effective Fixed Borrow Rate (avg={np.mean(hist_effective_avg):.3%})", alpha=0.5, color='orange')
-plt.xlabel('Average Rate')
-plt.ylabel('Frequency')
-plt.title('Histogram of Average Rate')
-plt.grid(True)
-plt.legend()
-plt.show()
+# plt.figure(figsize=(10, 6))
+# p = plt.hist(hist_effective_avg, bins=30, label=f"Effective Fixed Borrow Rate (avg={np.mean(hist_effective_avg):.3%})", alpha=0.5, color='orange')
+# plt.xlabel('Average Rate')
+# plt.ylabel('Frequency')
+# plt.title('Histogram of Average Rate')
+# plt.grid(True)
+# plt.legend()
+# plt.show()
 plt.figure(figsize=(10, 6))
 plt.hist(hist_effective_avg, bins=30, label=f"Effective Fixed Borrow Rate (avg={np.mean(hist_effective_avg):.3%})", alpha=0.5, color='orange')
 plt.hist(hist_borrow_avg, bins=30, alpha=0.5, color='blue', label=f"Variable Borrow Rate (avg={np.mean(hist_borrow_avg):.3%})")
@@ -305,7 +312,8 @@ plt.title('Histogram of Average Rate')
 plt.grid(True)
 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.tight_layout()
-plt.show()
+# plt.show()
+plt.savefig('outputs/' + FILENAME + '-avg-rates.png')
 
 # %%
 # plot historical rate paths
@@ -335,16 +343,16 @@ print(f"finding trial closest to {ptile}")
 idx = np.argmin(np.abs(hist_effective_avg - ptile))
 utilization = hist_utilization[idx]
 irm.rate_at_target = CURRENT_RATE_AT_TARGET
-borrow_rates, supply_rates, effective_rates, rates_at_target = calculate_irm_stats(irm, utilization, UTILIZATION_POINT)
+borrow_rates, supply_rates, effective_rates, rates_at_target = calculate_irm_stats(irm, utilization, UTILIZATION_POINT, hd_fixed_rate)
 print(rates_at_target)
-plot_utilization_and_rates(irm, utilization, borrow_rates, supply_rates, effective_rates, rates_at_target)
+plot_utilization_and_rates(irm, utilization, borrow_rates, supply_rates, effective_rates, rates_at_target, file_suffix=f"-rate-paths")
 
 # %%
 # manually set utilization schedule
 irm = AdaptiveIRM(u_target=0.9, rate_at_target=CURRENT_RATE_AT_TARGET)
 utilization = np.array([0.95] * 10 + [0.35] * 10)
-borrow_rates, supply_rates, effective_rates, rate_at_target = calculate_irm_stats(irm, utilization)
-plot_utilization_and_rates(irm, utilization, borrow_rates, supply_rates, effective_rates, rate_at_target)
+borrow_rates, supply_rates, effective_rates, rate_at_target = calculate_irm_stats(irm, utilization, UTILIZATION_POINT, hd_fixed_rate)
+plot_utilization_and_rates(irm, utilization, borrow_rates, supply_rates, effective_rates, rate_at_target, file_suffix="-rate-paths-1-step")
 # the average gap between borrow and supply is your extra cost of the fixed borrow
 gap = np.array(borrow_rates) - np.array(supply_rates)
 print(f"Average gap: {np.mean(gap):.2%}")
@@ -361,7 +369,7 @@ for n_days_high in range(1, NUM_DAYS + 1):
     irm = AdaptiveIRM(u_target=0.9, rate_at_target=CURRENT_RATE_AT_TARGET)
     utilization = np.array([HIGH_UTILIZATION_RATE] * n_days_high + [LOW_UTILIZATION_RATE] * nday_low)
     # utilization = np.tile(utilization, 9)  # repeat the array to match 180 days
-    borrow_rates, supply_rates, effective_rates, rates_at_target = calculate_irm_stats(irm, utilization, UTILIZATION_POINT)
+    borrow_rates, supply_rates, effective_rates, rates_at_target = calculate_irm_stats(irm, utilization, UTILIZATION_POINT, hd_fixed_rate)
     gap = np.array(borrow_rates) - np.array(supply_rates)
     avg_gp = np.mean(gap)
     if avg_gp > worst_gap:
@@ -375,10 +383,10 @@ nday_low = NUM_DAYS - n_days_high
 irm = AdaptiveIRM(u_target=0.9, rate_at_target=CURRENT_RATE_AT_TARGET)
 utilization = np.array([HIGH_UTILIZATION_RATE] * n_days_high + [LOW_UTILIZATION_RATE] * nday_low)
 # utilization = np.tile(utilization, 9)  # repeat the array to match 180 days
-borrow_rates, supply_rates, effective_rates, rates_at_target = calculate_irm_stats(irm, utilization, UTILIZATION_POINT)
+borrow_rates, supply_rates, effective_rates, rates_at_target = calculate_irm_stats(irm, utilization, UTILIZATION_POINT, hd_fixed_rate)
 avg_effective_rate = np.mean(effective_rates)
 print(f"Average effective rate: {avg_effective_rate:.2%}")
-plot_utilization_and_rates(irm, utilization, borrow_rates, supply_rates, effective_rates, rates_at_target)
+plot_utilization_and_rates(irm, utilization, borrow_rates, supply_rates, effective_rates, rates_at_target, file_suffix=f"-worst-case")
 
 
 # %%
@@ -413,14 +421,14 @@ irm = AdaptiveIRM(u_target=0.9, rate_at_target=CURRENT_RATE_AT_TARGET)
 death_utilization = np.array(death_utilization_list)
 pain_utilization = np.array(pain_utilization_list)
 # utilization = np.tile(utilization, 9)  # repeat the array to match 180 days
-borrow_rates, supply_rates, effective_rates, rates_at_target = calculate_irm_stats(irm, death_utilization, UTILIZATION_POINT)
+borrow_rates, supply_rates, effective_rates, rates_at_target = calculate_irm_stats(irm, death_utilization, UTILIZATION_POINT, hd_fixed_rate)
 avg_effective_rate = np.mean(effective_rates)
 print(f"Average death effective rate: {avg_effective_rate:.2%}")
-plot_utilization_and_rates(irm, death_utilization, borrow_rates, supply_rates, effective_rates, rates_at_target)
-borrow_rates, supply_rates, effective_rates, rates_at_target = calculate_irm_stats(irm, pain_utilization, UTILIZATION_POINT)
+plot_utilization_and_rates(irm, death_utilization, borrow_rates, supply_rates, effective_rates, rates_at_target, file_suffix=f"-sawtooth-death")
+borrow_rates, supply_rates, effective_rates, rates_at_target = calculate_irm_stats(irm, pain_utilization, UTILIZATION_POINT, hd_fixed_rate)
 avg_effective_rate = np.mean(effective_rates)
 print(f"Average pain effective rate: {avg_effective_rate:.2%}")
-plot_utilization_and_rates(irm, pain_utilization, borrow_rates, supply_rates, effective_rates, rates_at_target)
+plot_utilization_and_rates(irm, pain_utilization, borrow_rates, supply_rates, effective_rates, rates_at_target, file_suffix=f"-sawtooth-pain")
 
 # %%
 
