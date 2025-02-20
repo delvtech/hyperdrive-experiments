@@ -1,1 +1,1 @@
-from .adaptive_irm import AdaptiveIRM
+from .aave_irm import AaveIRM

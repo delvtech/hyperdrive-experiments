@@ -1,13 +1,15 @@
 import math
 import numpy as np
 
+from dataclasses import dataclass
+
 @dataclass
 class AaveIRM:
     u_target: float = 0.92
     slope_1: float = 0 #rate_at_target when u <= u_target
-    slope_2: float = 0 #rate_at_target when u > u_target
+    slope_2: float = 0 #max_rate = rate_at_target + slope_2 when u > u_target
     reserve_factor: float = 0.10
-    base_rate: float = 0
+    base_rate: float = 0 #rate when u = 0
 
     def __post_init__(self):
         if self.u_target is None:
@@ -20,6 +22,14 @@ class AaveIRM:
             raise ValueError("reserve_factor cannot be None")
         if self.base_rate is None:
             raise ValueError("base_rate cannot be None")
+
+    @property
+    def rate_at_target(self):
+        return self.slope_1
+
+    @rate_at_target.setter
+    def rate_at_target(self, value):
+        self.slope_1 = value
 
     def calc_borrow_rate(self, utilization: float) -> float:
         if utilization > self.u_target:
@@ -50,10 +60,10 @@ class AaveIRM:
         return fixed_cost + self.gap(utilization)
     
     def calc_new_rate_at_target_given_utilization(self, utilization: float, time_delta_in_years: float) -> float:
-        return self.rate_at_target * math.exp(50 * self.e(utilization)*time_delta_in_years)
+        return self.rate_at_target
     
-    def calc_utilization_given_new_rate_at_target(self, new_rate_at_target: float, time_delta_in_years: float) -> float:
-        return ((1 - self.u_target) * math.log(new_rate_at_target / self.rate_at_target)) / (50 * time_delta_in_years) + self.u_target
+    # def calc_utilization_given_new_rate_at_target(self, new_rate_at_target: float, time_delta_in_years: float) -> float:
+    #     return ((1 - self.u_target) * math.log(new_rate_at_target / self.rate_at_target)) / (50 * time_delta_in_years) + self.u_target
 
     def update_rate_at_target(self, utilization: float, time_delta_in_years: float, new_rate_at_target: float = None):
         """Update the rate at target based on the utilization and time delta."""
